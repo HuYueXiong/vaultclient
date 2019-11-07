@@ -5,7 +5,7 @@
 using namespace metal;
 
 // This should match CPU struct size
-#define VERTEX_COUNT 2
+#define VERTEX_COUNT 3
 
 
 // Visualization Vertex Shader - g_VisualizationVertexShader

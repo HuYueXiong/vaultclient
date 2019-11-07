@@ -459,7 +459,7 @@ const char *const g_tileVertexShader = R"shader(
   };
 
   // This should match CPU struct size
-  #define VERTEX_COUNT 2
+  #define VERTEX_COUNT 3
 
   cbuffer u_EveryObject : register(b0)
   {

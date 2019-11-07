@@ -20,6 +20,7 @@ enum vcMeshRenderMode
   vcMRM_Triangles,
   vcMRM_TriangleStrip,
   vcMRM_Points,
+  vcMRM_Lines,
 };
 
 udResult vcMesh_Create(vcMesh **ppMesh, const vcVertexLayoutTypes *pMeshLayout, int totalTypes, const void* pVerts, int currentVerts, const void *pIndices, int currentIndices, vcMeshFlags flags = vcMF_None);

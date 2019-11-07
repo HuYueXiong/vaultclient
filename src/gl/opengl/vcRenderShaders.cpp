@@ -392,7 +392,7 @@ out vec4 v_colour;
 out vec2 v_uv;
 
 // This should match CPU struct size
-#define VERTEX_COUNT 2
+#define VERTEX_COUNT 3
 
 layout (std140) uniform u_EveryObject
 {

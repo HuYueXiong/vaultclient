@@ -13,23 +13,42 @@
 #include "udPlatformUtil.h"
 #include "udChunkedArray.h"
 #include "udStringUtil.h"
+#include "udGeoZone.h"
 
 #include "stb_image.h"
 
 #include <vector>
+#include <map>
+#include <iostream>
+#include <string>
+#include <sstream>
+
+using namespace std;
 
 // Debug tiles with colour information
-#define VISUALIZE_DEBUG_TILES 0
+#define VISUALIZE_DEBUG_TILES 1
 
 enum
 {
-  TileVertexResolution = 2, // This should match GPU struct size
+  TileVertexResolution = 3, // This should match GPU struct size
   TileIndexResolution = (TileVertexResolution - 1),
 
   MaxTextureUploadsPerFrame = 3,
+
+  DemTileResolution = 3601,
 };
 
 static const float sTileFadeSpeed = 2.15f;
+
+struct vcDemTile
+{
+  uint16_t latitutde;
+  bool isS;
+  uint16_t longitude;
+  bool isE;
+
+  int16_t *demData;
+};
 
 struct vcTileRenderer
 {
@@ -39,13 +58,17 @@ struct vcTileRenderer
   vcSettings *pSettings;
   vcQuadTree quadTree;
 
+  //std::vector<vcMesh*> *pTileMeshes;
   vcMesh *pFullTileMesh;
   vcTexture *pEmptyTileTexture;
 
+  //udFloat4 demUVs[2 * TileVertexResolution * TileVertexResolution]; // not sure?
+  std::vector<vcDemTile*> *pDemTiles;
   udDouble3 cameraPosition;
 
   std::vector<std::vector<vcQuadTreeNode*>> *pRenderQueue;
   std::vector<vcQuadTreeNode*> *pTransparentTiles;
+
 
   // cache textures
   struct vcTileCache
@@ -69,6 +92,7 @@ struct vcTileRenderer
       udFloat4x4 projectionMatrix;
       udFloat4 eyePositions[TileVertexResolution * TileVertexResolution];
       udFloat4 colour;
+
     } everyObject;
   } presentShader;
 };
@@ -300,48 +324,133 @@ epilogue:
 
   return 0;
 }
+void vcTileRenderer_BuildDemData(vector<vcDemTile*> *pDemTiles)
+{
+  const char* tiles[] = { "D:\\Euclideon\\dev\\vaultclient\\builds\\assets\\S28E152.hgt", "D:\\Euclideon\\dev\\vaultclient\\builds\\assets\\S28E153.hgt" };
+
+  for (int i = 0; i < 2; ++i)
+  {
+    string fileName(tiles[i]);
+    size_t startPos = fileName.find_last_of('\\') + 1;
+    string geoRefStr = fileName.substr(startPos, fileName.find('.') - startPos);
+
+    vcDemTile *demTile = udAllocType(vcDemTile, 1, udAF_Zero);
+
+    //store the metadata parsed out from filename..
+    demTile->isS = geoRefStr.find('S') != string::npos;
+    demTile->isE = geoRefStr.find('E') != string::npos;
+
+    stringstream ss;
+    char longiName = 'E';
+    if (!demTile->isE)
+      longiName = 'W';
+  
+    size_t longi_pos = geoRefStr.find(longiName);
+    ss.str(geoRefStr.substr(1, longi_pos - 1));
+    ss >> demTile->latitutde;
+
+    ss.clear();
+    ss.str(geoRefStr.substr(longi_pos + 1, geoRefStr.find('.') - longi_pos - 1));
+    ss >> demTile->longitude;
+
+
+    void* pFileData;
+    int64_t fileLen;
+    udFile_Load(tiles[i], &pFileData, &fileLen);
+    int outputSize = 3601;
+    int inputSize = 3601;
+    demTile->demData = udAllocType(int16_t, outputSize * outputSize, udAF_Zero);
+
+    int16_t lastValidHeight = 0;
+    for (int y = 0; y < outputSize; ++y)
+    {
+      for (int x = 0; x < outputSize; ++x)
+      {
+        uint16_t p = ((uint16_t*)pFileData)[y * inputSize + x];
+        p = ((p & 0xff00) >> 8) | ((p & 0x00ff) << 8);
+        if (p > 40000)
+          p = lastValidHeight;
+        lastValidHeight = p;
+        demTile->demData[y * outputSize + x] = p;
+      }
+    }
+
+    pDemTiles->push_back(demTile);
+    //vcTexture_Create(&pDEMTexture[i], outputSize, outputSize, pRealignedPixels, vcTextureFormat_R16, vcTFM_Linear, false, vcTWM_Clamp);//, vcTCF_None, 16);
+  }
+
+
+  //printf("DEUBG dem:  size of demTiles: %d", demTiles.size());
+
+}
 
 void vcTileRenderer_BuildMeshVertices(vcP3Vertex *pVerts, int *pIndicies, udFloat2 minUV, udFloat2 maxUV)
 {
-  for (int y = 0; y < TileIndexResolution; ++y)
-  {
-    for (int x = 0; x < TileIndexResolution; ++x)
-    {
-      int index = y * TileIndexResolution + x;
-      int vertIndex = y * TileVertexResolution + x;
-      pIndicies[index * 6 + 0] = vertIndex + TileVertexResolution;
-      pIndicies[index * 6 + 1] = vertIndex + 1;
-      pIndicies[index * 6 + 2] = vertIndex;
-
-      pIndicies[index * 6 + 3] = vertIndex + TileVertexResolution;
-      pIndicies[index * 6 + 4] = vertIndex + TileVertexResolution + 1;
-      pIndicies[index * 6 + 5] = vertIndex + 1;
-    }
-  }
-
-  float normalizeVertexPositionScale = float(TileVertexResolution) / (TileVertexResolution - 1); // ensure verts are [0, 1]
+  // define all vertices 
   for (int y = 0; y < TileVertexResolution; ++y)
   {
     for (int x = 0; x < TileVertexResolution; ++x)
     {
       uint32_t index = y * TileVertexResolution + x;
-      pVerts[index].position.z = (float)index;
-
-      float normX = ((float)(x) / TileVertexResolution) * normalizeVertexPositionScale;
-      float normY = ((float)(y) / TileVertexResolution) * normalizeVertexPositionScale;
-      pVerts[index].position.x = minUV.x + normX * (maxUV.x - minUV.x);
-      pVerts[index].position.y = minUV.y + normY * (maxUV.y - minUV.y);
-
+      // tX and tY are in [0, 1], mean the relative position in the covered UV 2d space. 
+      float tX = float(x) / float(TileVertexResolution - 1);
+      float tY = float(y) / float(TileVertexResolution - 1);
+      pVerts[index].position.x = minUV.x + tX * (maxUV.x - minUV.x);
+      pVerts[index].position.y = minUV.y + tY * (maxUV.y - minUV.y);
+      pVerts[index].position.z = float(index);
     }
   }
+
+   // forming the triangle strips, according to which quadrant it is
+  //const int vertCountFull = TileIndexResolution * TileIndexResolution * 6;
+  //int indicesFull[vertCountFull] = {};
+
+  for (int y = 0; y < TileIndexResolution; ++y)
+  {
+    for (int x = 0; x < TileIndexResolution; ++x)
+    {
+      int tileIndex = y * TileIndexResolution + x;
+      int lowerLeftIndex = y * TileVertexResolution + x;
+
+      if (x == y)  // lower left or upper right quadrant
+      {
+        pIndicies[tileIndex * 6 + 0] = lowerLeftIndex ;
+        pIndicies[tileIndex * 6 + 2] = lowerLeftIndex + TileVertexResolution;
+        pIndicies[tileIndex * 6 + 1] = lowerLeftIndex + TileVertexResolution + 1;
+
+        pIndicies[tileIndex * 6 + 3] = lowerLeftIndex;
+        pIndicies[tileIndex * 6 + 4] = lowerLeftIndex + TileVertexResolution + 1;
+        pIndicies[tileIndex * 6 + 5] = lowerLeftIndex + 1;
+
+      }
+      else  // lower right or upper left
+      {
+
+        pIndicies[tileIndex * 6 + 0] = lowerLeftIndex ;
+        pIndicies[tileIndex * 6 + 1] = lowerLeftIndex + TileVertexResolution;
+        pIndicies[tileIndex * 6 + 2] = lowerLeftIndex + 1;
+
+        pIndicies[tileIndex * 6 + 3] = lowerLeftIndex + TileVertexResolution;
+        pIndicies[tileIndex * 6 + 4] = lowerLeftIndex + TileVertexResolution + 1;
+        pIndicies[tileIndex * 6 + 5] = lowerLeftIndex + 1;
+      }
+    }
+  }
+
+  //indicesCount.push_back(vertCountFull);
+  //pIndicies.push_back(indicesFull);
+
 }
 
-udResult vcTileRenderer_Create(vcTileRenderer **ppTileRenderer, vcSettings *pSettings)
+udResult vcTileRenderer_Create(vcTileRenderer** ppTileRenderer, vcSettings* pSettings)
 {
   udResult result;
-  vcTileRenderer *pTileRenderer = nullptr;
+  vcTileRenderer* pTileRenderer = nullptr;
   vcP3Vertex verts[TileVertexResolution * TileVertexResolution] = {};
   int indicies[TileIndexResolution * TileIndexResolution * 6] = {};
+  //vector<int*> indices;
+  //vector<int> indicesCount;
+
   uint32_t greyPixel = 0xf3f3f3ff;
   UD_ERROR_NULL(ppTileRenderer, udR_InvalidParameter_);
 
@@ -364,16 +473,29 @@ udResult vcTileRenderer_Create(vcTileRenderer **ppTileRenderer, vcSettings *pSet
   UD_ERROR_IF(!vcShader_CreateFromText(&pTileRenderer->presentShader.pProgram, g_tileVertexShader, g_tileFragmentShader, vcP3VertexLayout), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetConstantBuffer(&pTileRenderer->presentShader.pConstantBuffer, pTileRenderer->presentShader.pProgram, "u_EveryObject", sizeof(pTileRenderer->presentShader.everyObject)), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetSamplerIndex(&pTileRenderer->presentShader.uniform_texture, pTileRenderer->presentShader.pProgram, "u_texture"), udR_InternalError);
-  
+  //UD_ERROR_IF(!vcShader_GetSamplerIndex(&pTileRenderer->presentShader.uniform_dem0, pTileRenderer->presentShader.pProgram, "u_dem0"), udR_InternalError);
+  //UD_ERROR_IF(!vcShader_GetSamplerIndex(&pTileRenderer->presentShader.uniform_dem1, pTileRenderer->presentShader.pProgram, "u_dem1"), udR_InternalError);
+
   // build meshes
+  //pTileRenderer->pTileMeshes = new vector<vcMesh*>();
   vcTileRenderer_BuildMeshVertices(verts, indicies, udFloat2::create(0.0f, 0.0f), udFloat2::create(1.0f, 1.0f));
+
+  // loop through each configuration, sharing the same vertex list, but different indices config
+  //for (int i = 0; i < indices.size(); ++i)
+  //{
+  //pTileRenderer->pTileMeshes->push_back(NULL);
   UD_ERROR_CHECK(vcMesh_Create(&pTileRenderer->pFullTileMesh, vcP3VertexLayout, (int)udLengthOf(vcP3VertexLayout), verts, TileVertexResolution * TileVertexResolution, indicies, TileIndexResolution * TileIndexResolution * 6));
+  //}
   UD_ERROR_CHECK(vcTexture_Create(&pTileRenderer->pEmptyTileTexture, 1, 1, &greyPixel));
-  
+
   pTileRenderer->pTransparentTiles = new std::vector<vcQuadTreeNode*>();
   pTileRenderer->pRenderQueue = new std::vector<std::vector<vcQuadTreeNode*>>();
   for (int i = 0; i < MaxVisibleTileLevel; ++i)
    pTileRenderer->pRenderQueue->push_back(std::vector<vcQuadTreeNode*>());
+
+  //Setup for DEM.
+  pTileRenderer->pDemTiles = new std::vector<vcDemTile*>();
+  vcTileRenderer_BuildDemData(pTileRenderer->pDemTiles);
 
   *ppTileRenderer = pTileRenderer;
   pTileRenderer = nullptr;
@@ -412,11 +534,17 @@ udResult vcTileRenderer_Destroy(vcTileRenderer **ppTileRenderer)
 
   vcShader_ReleaseConstantBuffer(pTileRenderer->presentShader.pProgram, pTileRenderer->presentShader.pConstantBuffer);
   vcShader_DestroyShader(&(pTileRenderer->presentShader.pProgram));
+
+  //for (size_t i=0; i< pTileRenderer->pTileMeshes->size(); ++i)
   vcMesh_Destroy(&pTileRenderer->pFullTileMesh);
+
   vcTexture_Destroy(&pTileRenderer->pEmptyTileTexture);
 
   delete pTileRenderer->pTransparentTiles;
   delete pTileRenderer->pRenderQueue;
+  for (size_t i = 0; i < pTileRenderer->pDemTiles->size(); ++i)
+    delete pTileRenderer->pDemTiles->at(i);
+
   pTileRenderer->pTransparentTiles = nullptr;
   pTileRenderer->pRenderQueue = nullptr;
 
@@ -484,6 +612,8 @@ void vcTileRenderer_UpdateTextureQueuesRecursive(vcTileRenderer *pTileRenderer, 
     pNode->renderInfo.fadingIn = true;
     pTileRenderer->pTransparentTiles->push_back(pNode);
   }
+
+
 }
 
 void vcTileRenderer_UpdateTextureQueues(vcTileRenderer *pTileRenderer)
@@ -498,6 +628,8 @@ void vcTileRenderer_UpdateTextureQueues(vcTileRenderer *pTileRenderer)
 
   // update visible tiles textures
   vcTileRenderer_UpdateTextureQueuesRecursive(pTileRenderer, &pTileRenderer->quadTree.nodes.pPool[pTileRenderer->quadTree.rootIndex], tileUploadCount);
+
+  std::cout << "[DEBUG] tile # " << tileUploadCount << std::endl;
 
   // always request root
   vcTileRenderer_UpdateTileTexture(pTileRenderer, &pTileRenderer->quadTree.nodes.pPool[pTileRenderer->quadTree.rootIndex]);
@@ -577,6 +709,37 @@ bool vcTileRenderer_CanNodeDraw(vcQuadTreeNode *pNode)
   return vcTileRenderer_NodeHasValidBounds(pNode);
 }
 
+uint16_t vcTileRenderer_LookupDemHeight(vcTileRenderer* pTileRenderer, udDouble2* worldPos)
+{
+  udDouble3 geoCoord = udGeoZone_CartesianToLatLong(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(*worldPos, 0.0));
+  geoCoord[0] = abs(geoCoord[0]-1);
+  geoCoord[1] = abs(geoCoord[1]);
+
+  // find the dem tile this geoCoord falls on, if none return 0;
+  uint16_t lat = uint16_t(floor(geoCoord[0]));
+  uint16_t lon = uint16_t(floor(geoCoord[1]));
+
+  vcDemTile* targetTile = NULL;
+  for (int i=0; i< pTileRenderer->pDemTiles->size(); ++i)
+  {
+    vcDemTile* currentTile = pTileRenderer->pDemTiles->at(i);
+    if (currentTile->latitutde == lat && currentTile->longitude == lon)
+    {
+      targetTile = currentTile;
+      break;
+    }
+  }
+
+  if (!targetTile)
+    return 0; // doesn't fall on any DEM tile, keep it flat.
+
+  float demIndexLat = DemTileResolution * (geoCoord[0] - lat);
+  float demIndexLon = DemTileResolution * (geoCoord[1] - lon);
+
+  return targetTile->demData[int(demIndexLat) * DemTileResolution + int(demIndexLon)];
+}
+
+
 bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNode, vcMesh *pMesh, const udDouble4x4 &view, bool parentCanDraw)
 {
   vcTexture *pTexture = pNode->renderInfo.pTexture;
@@ -592,9 +755,66 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
     tileTransparency = pTileRenderer->pSettings->maptiles.transparency;
   }
 
+  // Prep DEM for lookup
+
+  //S28E153
+  udDouble3 r0 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(-28.0, 152, 0));
+  udDouble3 r1 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(-27.0, 153, 0));
+
+  //S28E152
+  udDouble3 r2 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(-28.0, 153.0, 0));
+  udDouble3 r3 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(-27.0, 154.0, 0));
+  // left brisbane (S28E152.hgt), right brisbane (S28E153.hgt)
+  //udDouble2 mins[] = { udDouble2::create(400781.82958118513, 6902797.6293904129), udDouble2::create(500000.00000000000, 6902394.7726541311) };
+  //udDouble2 maxs[] = { udDouble2::create(500000.00000000000, 7013171.6474111192), udDouble2::create(598325.33504640602, 7013564.7575185951) };
+
+  // left brisbane (S28E152.hgt), right brisbane (S28E153.hgt)
+  //udDouble2 mins[] = { udDouble2::create(400781.82958118513, 6902797.6293904129), udDouble2::create(500000.00000000000, 6902394.7726541311) };
+  //udDouble2 maxs[] = { udDouble2::create(500000.00000000000, 7013171.6474111192), udDouble2::create(598325.33504640602, 7013564.7575185951) };
+  //udDouble2 mins[] = { udDouble2::create(401674.66495384468, 6902394.7726660399), udDouble2::create(500000.00000000000, 6902797.6294023134) };
+  //udDouble2 maxs[] = { udDouble2::create(500000.00000000000, 6902797.6294023134), udDouble2::create(598325.33504615526, 6902394.7726660399) };
+  udDouble2 mins[] = { udDouble2::create(r0.x, r0.y), udDouble2::create(r2.x, r2.y) };
+  udDouble2 maxs[] = { udDouble2::create(r1.x, r1.y), udDouble2::create(r3.x, r3.y) };
+
+  //mins[0].x += 100.0; // manual correction (because its busted)
+  //maxs[0].y += 365.0; // manual correction (because its busted)
+  udDouble2 ranges[] = { maxs[0] - mins[0], maxs[1] - mins[1] };
+
+
+  /*
+  bool in0Bounds = !(tileBounds[5].x < mins[0].x || tileBounds[0].x > maxs[0].x || tileBounds[2].y < mins[0].y || tileBounds[6].y > maxs[0].y);
+  bool in1Bounds = !(tileBounds[5].x < mins[1].x || tileBounds[0].x > maxs[1].x || tileBounds[2].y < mins[1].y || tileBounds[6].y > maxs[1].y);
+  if (!in0Bounds && !in1Bounds)
+    return true;
+
+  for (int d = 0; d < 2; ++d)
+  {
+    for (int t = 0; t < 9; ++t)
+    {
+      double u2 = (tileBounds[t].x - mins[d].x) / ranges[d].x;
+      double v2 = (tileBounds[t].y - mins[d].y) / ranges[d].y;
+
+      pTileRenderer->presentShader.everyObject.demUVs[d * 9 + t].x = float(u2);
+      pTileRenderer->presentShader.everyObject.demUVs[d * 9 + t].y = float(1.0 - v2);
+    }
+  }
+  */
+
+
+  // This logic assumes a tile with 3*3 vert 
+  udDouble2 worldPos = udDouble2::create(0, 0);
   for (int t = 0; t < TileVertexResolution * TileVertexResolution; ++t)
   {
-    udFloat4 eyeSpaceVertexPosition = udFloat4::create(view * udDouble4::create(pNode->worldBounds[t], 0.0, 1.0));
+    unsigned int idx_y = t / TileVertexResolution;
+    unsigned int idx_x = t % TileVertexResolution;
+    // TODO: make this general 
+    worldPos[0] = pNode->worldBounds[0].x + idx_x * 0.5 * (pNode->worldBounds[1].x - pNode->worldBounds[0].x);
+    worldPos[1] = pNode->worldBounds[0].y + idx_y * 0.5 * (pNode->worldBounds[2].y - pNode->worldBounds[0].y);
+
+
+    double dem_height = double(vcTileRenderer_LookupDemHeight(pTileRenderer, &worldPos));
+    
+    udFloat4 eyeSpaceVertexPosition = udFloat4::create(view * udDouble4::create( worldPos, dem_height, 1.0));
     pTileRenderer->presentShader.everyObject.eyePositions[t] = eyeSpaceVertexPosition;
   }
 
@@ -608,6 +828,9 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
       pTileRenderer->presentShader.everyObject.colour.z = pNode->level / 21.0f;
   }
 #endif
+
+
+
 
   vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pTexture, 0);
   vcShader_BindConstantBuffer(pTileRenderer->presentShader.pProgram, pTileRenderer->presentShader.pConstantBuffer, &pTileRenderer->presentShader.everyObject, sizeof(pTileRenderer->presentShader.everyObject));
@@ -737,6 +960,8 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
   if (!pRootNode->rendered && pRootNode->renderInfo.pTexture && vcTileRenderer_NodeHasValidBounds(pRootNode))
     vcTileRenderer_DrawNode(pTileRenderer, pRootNode, pTileRenderer->pFullTileMesh, viewWithMapTranslation, false);
 
+
+
   // Draw transparent tiles
   if (pTileRenderer->pTransparentTiles->size() > 0)
   {
@@ -769,6 +994,7 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
       }
     }
   }
+
 
   vcTileRenderer_RecursiveSetRendered(pTileRenderer, pRootNode, pRootNode->rendered);
 

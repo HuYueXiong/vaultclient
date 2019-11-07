@@ -1,5 +1,6 @@
 #include "gl/vcMesh.h"
 #include "vcOpenGL.h"
+#include <iostream>
 
 udResult vcMesh_Create(vcMesh **ppMesh, const vcVertexLayoutTypes *pMeshLayout, int totalTypes, const void* pVerts, int currentVerts, const void *pIndices, int currentIndices, vcMeshFlags flags/* = vcMF_None*/)
 {
@@ -199,6 +200,10 @@ bool vcMesh_Render(vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_t start
     glRenderMode = GL_POINTS;
     elementsPerPrimitive = 1;
     break;
+  case vcMRM_Lines:
+    glRenderMode = GL_LINES;
+    elementsPerPrimitive = 2;
+    break;
   case vcMRM_Triangles: // fall through
   default:
     glRenderMode = GL_TRIANGLES;
@@ -207,9 +212,13 @@ bool vcMesh_Render(vcMesh *pMesh, uint32_t elementCount /* = 0*/, uint32_t start
   }
 
   if (pMesh->indexCount == 0)
+  {
     glDrawArrays(glRenderMode, startElement * elementsPerPrimitive, elementCount * elementsPerPrimitive);
+  }
   else
+  {
     glDrawElements(glRenderMode, elementCount * elementsPerPrimitive, pMesh->indexType, (void*)(size_t)(startElement * elementsPerPrimitive * pMesh->indexBytes));
+  }
 
   VERIFY_GL();
 
