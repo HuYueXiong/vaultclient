@@ -58,8 +58,8 @@ struct vcTileRenderer
   vcSettings *pSettings;
   vcQuadTree quadTree;
 
-  //std::vector<vcMesh*> *pTileMeshes;
-  vcMesh *pFullTileMesh;
+  std::vector<vcMesh*> *pTileMeshes;
+  //vcMesh *pFullTileMesh;
   vcTexture *pEmptyTileTexture;
 
   //udFloat4 demUVs[2 * TileVertexResolution * TileVertexResolution]; // not sure?
@@ -384,7 +384,40 @@ void vcTileRenderer_BuildDemData(vector<vcDemTile*> *pDemTiles)
 
 }
 
-void vcTileRenderer_BuildMeshVertices(vcP3Vertex *pVerts, int *pIndicies, udFloat2 minUV, udFloat2 maxUV)
+/*
+  Quadrants:
+      |
+   II |  I
+  ----------
+  III | IV
+      |
+  
+*/
+
+void vcTileRenderer_vertIndex_OddQuadrant(int* pIndices, int startIndex, int lowerLeftVertIdx)
+{
+  pIndices[startIndex + 0] = lowerLeftVertIdx;
+  pIndices[startIndex + 2] = lowerLeftVertIdx + TileVertexResolution;
+  pIndices[startIndex + 1] = lowerLeftVertIdx + TileVertexResolution + 1;
+
+  pIndices[startIndex + 3] = lowerLeftVertIdx;
+  pIndices[startIndex + 4] = lowerLeftVertIdx + TileVertexResolution + 1;
+  pIndices[startIndex + 5] = lowerLeftVertIdx + 1;
+}
+
+void vcTileRenderer_vertIndex_EvenQuadrant(int* pIndices, int startIndex, int lowerLeftVertIdx)
+{
+  pIndices[startIndex + 0] = lowerLeftVertIdx;
+  pIndices[startIndex + 1] = lowerLeftVertIdx + TileVertexResolution;
+  pIndices[startIndex + 2] = lowerLeftVertIdx + 1;
+
+  pIndices[startIndex + 3] = lowerLeftVertIdx + TileVertexResolution;
+  pIndices[startIndex + 4] = lowerLeftVertIdx + TileVertexResolution + 1;
+  pIndices[startIndex + 5] = lowerLeftVertIdx + 1;
+}
+
+
+void vcTileRenderer_BuildMeshVertices(vcP3Vertex *pVerts, int **pIndicies, int *pIndicesCount, udFloat2 minUV, udFloat2 maxUV)
 {
   // define all vertices 
   for (int y = 0; y < TileVertexResolution; ++y)
@@ -401,44 +434,123 @@ void vcTileRenderer_BuildMeshVertices(vcP3Vertex *pVerts, int *pIndicies, udFloa
     }
   }
 
-   // forming the triangle strips, according to which quadrant it is
+  //forming the triangle strips, according to which quadrant it is
   //const int vertCountFull = TileIndexResolution * TileIndexResolution * 6;
-  //int indicesFull[vertCountFull] = {};
+
+  int* idxFull = udAllocType(int, TileIndexResolution * TileIndexResolution * 6, udAF_Zero);
 
   for (int y = 0; y < TileIndexResolution; ++y)
   {
     for (int x = 0; x < TileIndexResolution; ++x)
     {
-      int tileIndex = y * TileIndexResolution + x;
-      int lowerLeftIndex = y * TileVertexResolution + x;
+      int tileStartIndex = 6* (y * TileIndexResolution + x); // how many elements preceeding this in the vertex array.
+      int lowerLeftIndex = y * TileVertexResolution + x; // actual index of the vertex object
 
       if (x == y)  // lower left or upper right quadrant
       {
-        pIndicies[tileIndex * 6 + 0] = lowerLeftIndex ;
-        pIndicies[tileIndex * 6 + 2] = lowerLeftIndex + TileVertexResolution;
-        pIndicies[tileIndex * 6 + 1] = lowerLeftIndex + TileVertexResolution + 1;
-
-        pIndicies[tileIndex * 6 + 3] = lowerLeftIndex;
-        pIndicies[tileIndex * 6 + 4] = lowerLeftIndex + TileVertexResolution + 1;
-        pIndicies[tileIndex * 6 + 5] = lowerLeftIndex + 1;
-
+        vcTileRenderer_vertIndex_OddQuadrant(idxFull, tileStartIndex, lowerLeftIndex);
       }
       else  // lower right or upper left
       {
-
-        pIndicies[tileIndex * 6 + 0] = lowerLeftIndex ;
-        pIndicies[tileIndex * 6 + 1] = lowerLeftIndex + TileVertexResolution;
-        pIndicies[tileIndex * 6 + 2] = lowerLeftIndex + 1;
-
-        pIndicies[tileIndex * 6 + 3] = lowerLeftIndex + TileVertexResolution;
-        pIndicies[tileIndex * 6 + 4] = lowerLeftIndex + TileVertexResolution + 1;
-        pIndicies[tileIndex * 6 + 5] = lowerLeftIndex + 1;
+        vcTileRenderer_vertIndex_EvenQuadrant(idxFull, tileStartIndex, lowerLeftIndex);
       }
     }
   }
+  pIndicies[0] = idxFull;
+  pIndicesCount[0] = TileIndexResolution * TileIndexResolution * 6;
 
-  //indicesCount.push_back(vertCountFull);
-  //pIndicies.push_back(indicesFull);
+
+  const int idxCountSkipOne = TileIndexResolution * TileIndexResolution * 6 - 3;
+
+  // Tiles for stitching, each with one less triangle:
+
+  //  skipping vertex 'up': =================
+  int* idxSkipUp = udAllocType(int, idxCountSkipOne, udAF_Zero);
+
+  // Usual: third and fourth quadrants
+  vcTileRenderer_vertIndex_OddQuadrant(idxSkipUp, 0, 0);
+  vcTileRenderer_vertIndex_EvenQuadrant(idxSkipUp, 6, 1);
+  // upper half has 3 triangles in total
+  idxSkipUp[12] = 3;
+  idxSkipUp[13] = 3 + TileVertexResolution;
+  idxSkipUp[14] = 4;
+
+  idxSkipUp[15] = 4;
+  idxSkipUp[16] = 3 + TileVertexResolution;
+  idxSkipUp[17] = 3 + TileVertexResolution +2;
+
+  idxSkipUp[18] = 4;
+  idxSkipUp[19] = 3 + TileVertexResolution + 2;
+  idxSkipUp[20] = 5;
+
+  pIndicies[1] = idxSkipUp;
+  pIndicesCount[1] = idxCountSkipOne;
+
+  //  skipping vertex 'left': ===========
+  int* idxSkipLeft = udAllocType(int, idxCountSkipOne, udAF_Zero);
+
+  // Usual: First and fourth quadrants
+  vcTileRenderer_vertIndex_OddQuadrant(idxSkipLeft, 0, 4);
+  vcTileRenderer_vertIndex_EvenQuadrant(idxSkipLeft, 6, 1);
+  // left half has 3 triangles in total
+  idxSkipLeft[12] = 0;
+  idxSkipLeft[13] = TileVertexResolution + 1;
+  idxSkipLeft[14] = 1;
+
+  idxSkipLeft[15] = 0;
+  idxSkipLeft[16] = 2 * TileVertexResolution;
+  idxSkipLeft[17] = TileVertexResolution + 1;
+
+  idxSkipLeft[18] = 2*TileVertexResolution;
+  idxSkipLeft[19] = 2 * TileVertexResolution + 1;
+  idxSkipLeft[20] = TileVertexResolution + 1;
+
+  pIndicies[2] = idxSkipLeft;
+  pIndicesCount[2] = idxCountSkipOne;
+
+  //  skipping vertex 'down': ==================
+  int* idxSkipDown = udAllocType(int, idxCountSkipOne, udAF_Zero);
+
+  // Usual: First and second quadrants 
+  vcTileRenderer_vertIndex_OddQuadrant(idxSkipDown, 0, 4);
+  vcTileRenderer_vertIndex_EvenQuadrant(idxSkipDown, 6, 3);
+  // upper half has 3 triangles in total
+  idxSkipDown[12] = 0;
+  idxSkipDown[13] = TileVertexResolution;
+  idxSkipDown[14] = TileVertexResolution + 1;
+
+  idxSkipDown[15] = 0;
+  idxSkipDown[16] = TileVertexResolution + 1;
+  idxSkipDown[17] = TileVertexResolution -1;
+
+  idxSkipDown[18] = TileVertexResolution - 1;
+  idxSkipDown[19] = TileVertexResolution + 1;
+  idxSkipDown[20] = 2* TileVertexResolution -1 ;
+
+  pIndicies[3] = idxSkipDown;
+  pIndicesCount[3] = idxCountSkipOne;
+
+  //  skipping vertex 'right': ====================
+  int* idxSkipRight = udAllocType(int, idxCountSkipOne, udAF_Zero);
+
+  // Usual: second and third squadrants
+  vcTileRenderer_vertIndex_OddQuadrant(idxSkipRight, 0, 0);
+  vcTileRenderer_vertIndex_EvenQuadrant(idxSkipRight, 6, 3);
+  // upper half has 3 triangles in total
+  idxSkipRight[12] = 1;
+  idxSkipRight[13] = 1 + TileVertexResolution;
+  idxSkipRight[14] = 2;
+
+  idxSkipRight[15] = 2;
+  idxSkipRight[16] = 2 + TileVertexResolution -1;
+  idxSkipRight[17] = 2 + TileVertexResolution * 2;
+
+  idxSkipRight[18] = 4;
+  idxSkipRight[19] = 4 + TileVertexResolution;
+  idxSkipRight[20] = 4 + TileVertexResolution + 1;
+
+  pIndicies[4] = idxSkipRight;
+  pIndicesCount[4] = idxCountSkipOne;
 
 }
 
@@ -447,9 +559,9 @@ udResult vcTileRenderer_Create(vcTileRenderer** ppTileRenderer, vcSettings* pSet
   udResult result;
   vcTileRenderer* pTileRenderer = nullptr;
   vcP3Vertex verts[TileVertexResolution * TileVertexResolution] = {};
-  int indicies[TileIndexResolution * TileIndexResolution * 6] = {};
-  //vector<int*> indices;
-  //vector<int> indicesCount;
+  //int indicies[TileIndexResolution * TileIndexResolution * 6] = {};
+  int* indicies[5] = {};
+  int indicesCount[5] = {};
 
   uint32_t greyPixel = 0xf3f3f3ff;
   UD_ERROR_NULL(ppTileRenderer, udR_InvalidParameter_);
@@ -477,15 +589,14 @@ udResult vcTileRenderer_Create(vcTileRenderer** ppTileRenderer, vcSettings* pSet
   //UD_ERROR_IF(!vcShader_GetSamplerIndex(&pTileRenderer->presentShader.uniform_dem1, pTileRenderer->presentShader.pProgram, "u_dem1"), udR_InternalError);
 
   // build meshes
-  //pTileRenderer->pTileMeshes = new vector<vcMesh*>();
-  vcTileRenderer_BuildMeshVertices(verts, indicies, udFloat2::create(0.0f, 0.0f), udFloat2::create(1.0f, 1.0f));
+  pTileRenderer->pTileMeshes = new vector<vcMesh*>(5);
+  vcTileRenderer_BuildMeshVertices(verts, indicies, indicesCount, udFloat2::create(0.0f, 0.0f), udFloat2::create(1.0f, 1.0f));
 
   // loop through each configuration, sharing the same vertex list, but different indices config
-  //for (int i = 0; i < indices.size(); ++i)
-  //{
-  //pTileRenderer->pTileMeshes->push_back(NULL);
-  UD_ERROR_CHECK(vcMesh_Create(&pTileRenderer->pFullTileMesh, vcP3VertexLayout, (int)udLengthOf(vcP3VertexLayout), verts, TileVertexResolution * TileVertexResolution, indicies, TileIndexResolution * TileIndexResolution * 6));
-  //}
+  for (int i = 0; i < 5; ++i)
+  {
+    UD_ERROR_CHECK(vcMesh_Create(&(pTileRenderer->pTileMeshes->at(i)), vcP3VertexLayout, (int)udLengthOf(vcP3VertexLayout), verts, TileVertexResolution * TileVertexResolution, indicies[i], indicesCount[i]));
+  }
   UD_ERROR_CHECK(vcTexture_Create(&pTileRenderer->pEmptyTileTexture, 1, 1, &greyPixel));
 
   pTileRenderer->pTransparentTiles = new std::vector<vcQuadTreeNode*>();
@@ -535,8 +646,9 @@ udResult vcTileRenderer_Destroy(vcTileRenderer **ppTileRenderer)
   vcShader_ReleaseConstantBuffer(pTileRenderer->presentShader.pProgram, pTileRenderer->presentShader.pConstantBuffer);
   vcShader_DestroyShader(&(pTileRenderer->presentShader.pProgram));
 
-  //for (size_t i=0; i< pTileRenderer->pTileMeshes->size(); ++i)
-  vcMesh_Destroy(&pTileRenderer->pFullTileMesh);
+  for (size_t i=0; i< pTileRenderer->pTileMeshes->size(); ++i)
+    vcMesh_Destroy(&(pTileRenderer->pTileMeshes->at(i)));
+  delete pTileRenderer->pTileMeshes;
 
   vcTexture_Destroy(&pTileRenderer->pEmptyTileTexture);
 
@@ -834,7 +946,7 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
 
   vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pTexture, 0);
   vcShader_BindConstantBuffer(pTileRenderer->presentShader.pProgram, pTileRenderer->presentShader.pConstantBuffer, &pTileRenderer->presentShader.everyObject, sizeof(pTileRenderer->presentShader.everyObject));
-  vcMesh_Render(pMesh, TileIndexResolution * TileIndexResolution * 2); // 2 tris per quad
+  vcMesh_Render(pMesh); // 2 tris per quad
 
   pNode->rendered = true;
   ++pTileRenderer->quadTree.metaData.nodeRenderCount;
@@ -871,20 +983,23 @@ bool vcTileRenderer_RecursiveBuildRenderQueue(vcTileRenderer *pTileRenderer, vcQ
   if (!pNode->visible)
     return false;
 
-  bool childrenNeedThisTileRendered = vcQuadTree_IsLeafNode(pNode);
-  if (!childrenNeedThisTileRendered)
+  bool toRender = vcQuadTree_IsLeafNode(pNode);
+  if (!toRender)
   {
     for (int c = 0; c < 4; ++c)
     {
       vcQuadTreeNode *pChildNode = &pTileRenderer->quadTree.nodes.pPool[pNode->childBlockIndex + c];
-      childrenNeedThisTileRendered = !vcTileRenderer_RecursiveBuildRenderQueue(pTileRenderer, pChildNode, canParentDraw || vcTileRenderer_CanNodeDraw(pChildNode)) || childrenNeedThisTileRendered;
+      bool canDrawChildNode = canParentDraw || vcTileRenderer_CanNodeDraw(pChildNode);
+      // we do want to call the recursive-build function anyways.
+      bool childToRender = vcTileRenderer_RecursiveBuildRenderQueue(pTileRenderer, pChildNode, canDrawChildNode);
+      toRender = toRender || !childToRender;
     }
   }
 
   if (pNode->renderInfo.fadingIn)
     return false;
 
-  if (childrenNeedThisTileRendered)
+  if (toRender)
   {
     if (!pNode->renderInfo.pTexture && (!vcTileRenderer_IsRootNode(pTileRenderer, pNode) && canParentDraw))
       return false;
@@ -906,7 +1021,7 @@ void vcTileRenderer_DrawRenderQueue(vcTileRenderer *pTileRenderer, const udDoubl
   {
     for (size_t t = 0; t < pTileRenderer->pRenderQueue->at(i).size(); ++t)
     {
-      vcTileRenderer_DrawNode(pTileRenderer, pTileRenderer->pRenderQueue->at(i).at(t), pTileRenderer->pFullTileMesh, view, false);
+      vcTileRenderer_DrawNode(pTileRenderer, pTileRenderer->pRenderQueue->at(i).at(t), pTileRenderer->pTileMeshes->at(0), view, false);
     }
   }
 }
@@ -958,9 +1073,7 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
 
   // Render the root tile again (if it hasn't already been rendered normally) to cover up gaps between tiles
   if (!pRootNode->rendered && pRootNode->renderInfo.pTexture && vcTileRenderer_NodeHasValidBounds(pRootNode))
-    vcTileRenderer_DrawNode(pTileRenderer, pRootNode, pTileRenderer->pFullTileMesh, viewWithMapTranslation, false);
-
-
+    vcTileRenderer_DrawNode(pTileRenderer, pRootNode, pTileRenderer->pTileMeshes->at(0), viewWithMapTranslation, false);
 
   // Draw transparent tiles
   if (pTileRenderer->pTransparentTiles->size() > 0)
@@ -981,7 +1094,7 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
     {
       tile->renderInfo.transparency = udMin(1.0f, tile->renderInfo.transparency + pTileRenderer->frameDeltaTime * sTileFadeSpeed);
       if (tile->visible && vcTileRenderer_NodeHasValidBounds(tile))
-        vcTileRenderer_DrawNode(pTileRenderer, tile, pTileRenderer->pFullTileMesh, viewWithMapTranslation, false);
+        vcTileRenderer_DrawNode(pTileRenderer, tile, pTileRenderer->pTileMeshes->at(0), viewWithMapTranslation, false);
     }
 
     for (int i = 0; i < int(pTileRenderer->pTransparentTiles->size()); ++i)
