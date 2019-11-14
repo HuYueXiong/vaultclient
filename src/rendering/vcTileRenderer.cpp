@@ -612,9 +612,13 @@ udResult vcTileRenderer_Create(vcTileRenderer** ppTileRenderer, vcSettings* pSet
   pTileRenderer = nullptr;
   result = udR_Success;
 
+  for (int i = 0; i < 5; ++i)
+    udFree(indicies[i]);
+
 epilogue:
   if (pTileRenderer)
     vcTileRenderer_Destroy(&pTileRenderer);
+
 
   return result;
 }
@@ -655,7 +659,11 @@ udResult vcTileRenderer_Destroy(vcTileRenderer **ppTileRenderer)
   delete pTileRenderer->pTransparentTiles;
   delete pTileRenderer->pRenderQueue;
   for (size_t i = 0; i < pTileRenderer->pDemTiles->size(); ++i)
-    delete pTileRenderer->pDemTiles->at(i);
+  {
+    udFree(pTileRenderer->pDemTiles->at(i)->demData);
+    udFree(pTileRenderer->pDemTiles->at(i));
+  }
+  delete pTileRenderer->pDemTiles;
 
   pTileRenderer->pTransparentTiles = nullptr;
   pTileRenderer->pRenderQueue = nullptr;
@@ -1021,7 +1029,8 @@ void vcTileRenderer_DrawRenderQueue(vcTileRenderer *pTileRenderer, const udDoubl
   {
     for (size_t t = 0; t < pTileRenderer->pRenderQueue->at(i).size(); ++t)
     {
-      vcTileRenderer_DrawNode(pTileRenderer, pTileRenderer->pRenderQueue->at(i).at(t), pTileRenderer->pTileMeshes->at(0), view, false);
+      vcQuadTreeNode* treeNode = pTileRenderer->pRenderQueue->at(i).at(t);
+      vcTileRenderer_DrawNode(pTileRenderer, treeNode, pTileRenderer->pTileMeshes->at(treeNode->meshConfig), view, false);
     }
   }
 }

@@ -49,6 +49,7 @@ struct vcQuadTreeNode
   bool visible;
   volatile bool touched;
   bool rendered;
+  int meshConfig;
 
   // cached
   udDouble2 worldBounds[4]; // corners

@@ -1,6 +1,7 @@
 #include "vcQuadTree.h"
 #include "vcGIS.h"
 #include "gl/vcTexture.h"
+#include <vector>
 
 #define INVALID_NODE_INDEX 0xffffffff
 
@@ -194,6 +195,8 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
   udInt2 pViewSlippyCoords;
   vcGIS_LocalToSlippy(&pQuadTree->gisSpace, &pViewSlippyCoords, pQuadTree->cameraWorldPosition, pQuadTree->slippyCoords.z + currentDepth + 1);
 
+  uint32_t subdivMask=0;
+
   //subdivide
   // 0 == bottom left
   // 1 == bottom right
@@ -243,9 +246,30 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
     // this `10000000.0` is arbitrary trial and error'd
     double distanceMS = (distanceToQuadrant / udMin(10000000.0, pQuadTree->quadTreeWorldSize));
     if (vcQuadTree_ShouldSubdivide(pQuadTree, distanceMS, currentDepth))
-      vcQuadTree_RecurseGenerateTree(pQuadTree, childIndex, currentDepth + 1);
+      subdivMask |= 1 << childQuadrant;
     else
       ++pQuadTree->metaData.leafNodeCount;
+  }
+
+  //Figure out the mesh config for each quadrant to be subdived,
+  // dpending on whethehr the adjacent quadrants will also be subdivided
+  // See the index notation on line 200
+  if (subdivMask & 1)
+  { // bottom left
+      vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex , currentDepth + 1);
+  }
+  if (subdivMask & 2)
+  { // buttom right
+    vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex+1, currentDepth + 1);
+  }
+
+  if (subdivMask & 4)
+  { // top left
+    vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex+2, currentDepth + 1);
+  }
+  if (subdivMask & 8)
+  { // top right
+    vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex +3 , currentDepth + 1);
   }
 }
 
