@@ -650,7 +650,7 @@ bool vcPOI::LoadAttachedModel(const char *pNewPath)
   vcPolygonModel_Destroy(&m_attachment.pModel);
   udFree(m_attachment.pPathLoaded);
 
-  if (vcPolygonModel_AsyncCreateFromURL(&m_attachment.pModel, pNewPath, m_pWorkerPool) == udR_Success)
+  if (vcPolygonModel_CreateFromURL(&m_attachment.pModel, pNewPath, m_pWorkerPool) == udR_Success)
   {
     m_attachment.pPathLoaded = udStrdup(pNewPath);
     return true;

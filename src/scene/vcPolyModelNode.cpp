@@ -10,17 +10,47 @@
 #include "imgui.h"
 #include "imgui_ex/vcImGuiSimpleWidgets.h"
 
+struct vcPolygonModelLoadInfo
+{
+  vcState *pProgramState;
+  vcPolyModelNode *pNode;
+};
+
+void vcPolyModelNode_LoadModel(void *pLoadInfoPtr)
+{
+  vcPolygonModelLoadInfo *pLoadInfo = (vcPolygonModelLoadInfo *)pLoadInfoPtr;
+  if (pLoadInfo->pProgramState->programComplete)
+    return;
+
+  if (vcPolygonModel_CreateFromURL(&pLoadInfo->pNode->m_pModel, pLoadInfo->pNode->m_pNode->pURI, pLoadInfo->pProgramState->pWorkerPool) == udR_Success)
+    pLoadInfo->pNode->m_loadStatus = vcSLS_Loaded;
+  else
+    pLoadInfo->pNode->m_loadStatus = vcSLS_Failed;
+} 
+
+
 vcPolyModelNode::vcPolyModelNode(vdkProject *pProject, vdkProjectNode *pNode, vcState *pProgramState) :
   vcSceneItem(pProject, pNode, pProgramState)
 {
   m_pModel = nullptr;
   m_matrix = udDouble4x4::identity();
   m_cullFace = vcGLSCM_Back;
+  m_loadStatus = vcSLS_Loading;
 
-  if (vcPolygonModel_AsyncCreateFromURL(&m_pModel, pNode->pURI, pProgramState->pWorkerPool) == udR_Success)
-    m_loadStatus = vcSLS_Loading;
+  vcPolygonModelLoadInfo *pLoadInfo = udAllocType(vcPolygonModelLoadInfo, 1, udAF_Zero);
+  if (pLoadInfo != nullptr)
+  {
+    // Prepare the load info
+    pLoadInfo->pNode = this;
+    pLoadInfo->pProgramState = pProgramState;
+
+    // Queue for load
+    udWorkerPool_AddTask(pProgramState->pWorkerPool, vcPolyModelNode_LoadModel, pLoadInfo, true);
+  }
   else
+  {
     m_loadStatus = vcSLS_Failed;
+  }
 
   OnNodeUpdate(pProgramState);
 }
@@ -61,14 +91,8 @@ void vcPolyModelNode::OnNodeUpdate(vcState *pProgramState)
 
 void vcPolyModelNode::AddToScene(vcState * /*pProgramState*/, vcRenderData *pRenderData)
 {
-  if (!m_visible || m_pModel == nullptr)
+  if (m_loadStatus != vcSLS_Loaded || !m_visible)
     return;
-
-  if (m_loadStatus != vcSLS_Loaded)
-  {
-    if (m_pModel->assetLoadRemaining.Get() == 0)
-      m_loadStatus = vcSLS_Loaded;
-  }
 
   vcRenderPolyInstance *pModel = pRenderData->polyModels.PushBack();
   pModel->pModel = m_pModel;

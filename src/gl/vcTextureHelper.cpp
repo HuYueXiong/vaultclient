@@ -126,6 +126,9 @@ udResult vcTexture_AsyncCreate(vcTexture** ppTexture, udWorkerPool* pPool, uint3
   *ppTexture = nullptr;
 epilogue:
 
+  if (result != udR_Success)
+    udFree(pLoadInfo);
+
   return result;
 }
 
@@ -152,6 +155,9 @@ udResult vcTexture_AsyncCreateFromFilename(vcTexture **ppTexture, udWorkerPool *
   *ppTexture = nullptr;
 epilogue:
 
+  if (result != udR_Success)
+    udFree(pLoadInfo);
+  
   return result;
 }
 

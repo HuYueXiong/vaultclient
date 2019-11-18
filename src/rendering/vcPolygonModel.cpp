@@ -16,6 +16,9 @@ static int gPolygonShaderRefCount = 0;
 const vcVertexLayoutTypes *pDefaultMeshLayout = vcP3N3UV2VertexLayout;
 const int DefaultTotalTypes = (int)udLengthOf(vcP3N3UV2VertexLayout);
 
+vcTexture *pWhiteTexture = nullptr;
+const uint32_t WhitePixel = 0xFFFFFFFF;
+
 enum
 {
   MaxTextureSize = 1024, // any texture dimension above this will be resized
@@ -81,50 +84,29 @@ struct AsyncPolygonModelLoadMeshInfo
 {
   vcPolygonModel *pPolygonModel;
   vcPolygonModelMesh *pMesh;
-  vcP3N3UV2Vertex *pVerts;
+
+  vcP3N3UV2Vertex *pVerts; 
 };
-
-udResult vcPolygonModel_CreateFromOBJ(vcPolygonModel **ppPolygonModel, const char *pFilepath, udWorkerPool *pWorkerPool);
-
-void vcPolygonModel_AsyncWorkerThreadCreateFromURL(void *pModelLoadInfo)
-{
-  AsyncPolygonModelLoadInfo *pLoadInfo = (AsyncPolygonModelLoadInfo *)pModelLoadInfo;
-  // TODO: have the polygon model already alloc'd at this point, so can exit on `keepLoading == false`
-
-  udFilename fn(pLoadInfo->pURL);
-
-  if (udStrEquali(fn.GetExt(), ".obj"))
-  {
-    vcPolygonModel_CreateFromOBJ(pLoadInfo->ppPolygonModel, pLoadInfo->pURL, pLoadInfo->pWorkerPool);
-  }
-  else if (udStrEquali(fn.GetExt(), ".vsm"))
-  {
-    void *pMemory = nullptr;
-    int64_t fileLength = 0;
-
-    udFile_Load(pLoadInfo->pURL, &pMemory, &fileLength);
-
-    vcPolygonModel_CreateFromVSMFInMemory(pLoadInfo->ppPolygonModel, (char *)pMemory, (int)fileLength, pLoadInfo->pWorkerPool);
-
-    udFree(pMemory);
-  }
-  else
-  {
-    // failure
-  }
-
-  udFree(pLoadInfo->pURL);
-}
 
 void vcPolygonModel_MainThreadCreateMesh(void *pData)
 {
   AsyncPolygonModelLoadMeshInfo *pLoadInfo = (AsyncPolygonModelLoadMeshInfo *)pData;
-  if (!pLoadInfo->pPolygonModel->keepLoading)
-    return;
 
+  ++pLoadInfo->pPolygonModel->assetLoadRemaining;
+  if (!pLoadInfo->pPolygonModel->keepLoading)
+  {
+    //--pLoadInfo->pPolygonModel->assetLoadRemaining;
+   // printf("KILL %d\n", pLoadInfo->pPolygonModel->assetLoadRemaining.Get());
+    udFree(pLoadInfo->pVerts);
+    --pLoadInfo->pPolygonModel->assetLoadRemaining;
+    printf("Necking mesh job\n");
+    return;
+  }
   vcMesh_Create(&pLoadInfo->pMesh->pMesh, pDefaultMeshLayout, DefaultTotalTypes, pLoadInfo->pVerts, pLoadInfo->pMesh->numVertices, nullptr, 0, vcMF_NoIndexBuffer);
 
+  printf("Done mesh job\n");
   udFree(pLoadInfo->pVerts);
+  --pLoadInfo->pPolygonModel->assetLoadRemaining;
 }
 
 vcPolygonModelShaderType vcPolygonModel_GetShaderType(const vcVertexLayoutTypes *pMeshLayout, int totalTypes)
@@ -177,7 +159,7 @@ udResult vcPolygonModel_CreateFromRawVertexData(vcPolygonModel **ppPolygonModel,
   UD_ERROR_CHECK(vcMesh_Create(&pPolygonModel->pMeshes[0].pMesh, pMeshLayout, totalTypes, pVerts, pPolygonModel->pMeshes[0].numVertices, pIndices, indexCount, (pIndices == nullptr) ? vcMF_NoIndexBuffer : vcMF_IndexShort));
 
   *ppPolygonModel = pPolygonModel;
-
+  pPolygonModel = nullptr;
 epilogue:
   if (result != udR_Success)
   {
@@ -254,7 +236,7 @@ udResult vcPolygonModel_CreateFromVSMFInMemory(vcPolygonModel **ppModel, char *p
     // override material id for now
     pNewModel->pMeshes[i].materialID = vcPMST_P3N3UV2_Opaque;
 
-    vcP3N3UV2Vertex *pVerts = (vcP3N3UV2Vertex *)pFilePos;
+    vcP3N3UV2Vertex *pVerts = (vcP3N3UV2Vertex *)pFilePos; //before commit, need to duplicate this memory?
     pFilePos += sizeof(*pVerts) * pNewModel->pMeshes[i].numVertices;
 
     // TODO: Assume these all need flipping
@@ -286,7 +268,6 @@ udResult vcPolygonModel_CreateFromVSMFInMemory(vcPolygonModel **ppModel, char *p
 
     pLoadInfo->pPolygonModel = pNewModel;
     pLoadInfo->pMesh = &pNewModel->pMeshes[i];
-    pLoadInfo->pVerts = pVerts;
 
     UD_ERROR_CHECK(udWorkerPool_AddTask(pWorkerPool, nullptr, pLoadInfo, true, vcPolygonModel_MainThreadCreateMesh));
     // check this before commit
@@ -323,6 +304,7 @@ udResult vcPolygonModel_CreateFromOBJ(vcPolygonModel **ppPolygonModel, const cha
   UD_ERROR_NULL(pPolygonModel, udR_MemoryAllocationFailure);
 
   pPolygonModel->keepLoading = true;
+  *ppPolygonModel = pPolygonModel;
 
   UD_ERROR_CHECK(vcOBJ_Load(&pOBJReader, pFilepath));
 
@@ -354,6 +336,7 @@ udResult vcPolygonModel_CreateFromOBJ(vcPolygonModel **ppPolygonModel, const cha
     pMaterialVerticesMap[pFace->mat].PushBack(pFace->verts[2]);
   }
 
+
   // count valid meshes (e.g. has vertices)
   for (size_t material = 0; material < pOBJReader->materials.length; ++material)
   {
@@ -364,8 +347,11 @@ udResult vcPolygonModel_CreateFromOBJ(vcPolygonModel **ppPolygonModel, const cha
   pPolygonModel->pMeshes = udAllocType(vcPolygonModelMesh, pPolygonModel->meshCount, udAF_Zero);
   UD_ERROR_NULL(pPolygonModel->pMeshes, udR_MemoryAllocationFailure);
 
+  //pPolygonModel->assetLoadRemaining.Set(pPolygonModel->meshCount); // only track meshes
+  
+
   // build meshes
-  for (size_t material = 0; material < (int)pOBJReader->materials.length; ++material)
+  for (size_t material = 0; material < (int)pOBJReader->materials.length && pPolygonModel->keepLoading; ++material)
   {
     udChunkedArray<vcOBJ::Face::Vert> *pMaterialVertexList = &pMaterialVerticesMap[material];
     if (pMaterialVertexList->length == 0)
@@ -421,18 +407,20 @@ udResult vcPolygonModel_CreateFromOBJ(vcPolygonModel **ppPolygonModel, const cha
 
     AsyncPolygonModelLoadMeshInfo *pLoadInfo = udAllocType(AsyncPolygonModelLoadMeshInfo, 1, udAF_Zero);
     UD_ERROR_NULL(pLoadInfo, udR_MemoryAllocationFailure);
-
+    
     pLoadInfo->pPolygonModel = pPolygonModel;
     pLoadInfo->pMesh = pMesh;
-    pLoadInfo->pVerts = pVerts;
-
-    UD_ERROR_CHECK(udWorkerPool_AddTask(pWorkerPool, nullptr, pLoadInfo, true, vcPolygonModel_MainThreadCreateMesh));
-    pPolygonModel->assetLoadRemaining++; // only keep track of meshes
+    
+    if (udWorkerPool_AddTask(pWorkerPool, nullptr, pLoadInfo, true, vcPolygonModel_MainThreadCreateMesh) != udR_Success)
+    {
+      udFree(pVerts);
+      udFree(pLoadInfo);
+    }
+    //pPolygonModel->assetLoadRemaining++; // only keep track of meshes
 
     ++internalMeshIndex;
   }
 
-  *ppPolygonModel = pPolygonModel;
   pPolygonModel = nullptr;
   result = udR_Success;
 epilogue:
@@ -445,57 +433,45 @@ epilogue:
 
   udFree(pMaterialVerticesMap);
 
-  if (pPolygonModel != nullptr)
-    vcPolygonModel_Destroy(&pPolygonModel);
+  //if (pPolygonModel != nullptr && pPolygonModel->keepLoading)
+  //{
+  //  *ppPolygonModel = nullptr;
+  //  vcPolygonModel_Destroy(&pPolygonModel);
+  //}
 
   vcOBJ_Destroy(&pOBJReader);
-  return result;
-}
-
-udResult vcPolygonModel_AsyncCreateFromURL(vcPolygonModel **ppModel, const char *pURL, udWorkerPool *pWorkerPool)
-{
-  udResult result;
-
-  AsyncPolygonModelLoadInfo *pLoadInfo = udAllocType(AsyncPolygonModelLoadInfo, 1, udAF_Zero);
-  UD_ERROR_NULL(pLoadInfo, udR_MemoryAllocationFailure);
-
-  *ppModel = nullptr;
-
-  pLoadInfo->ppPolygonModel = ppModel;
-  pLoadInfo->pURL = udStrdup(pURL);
-  pLoadInfo->pWorkerPool = pWorkerPool;
-
-  UD_ERROR_CHECK(udWorkerPool_AddTask(pWorkerPool, vcPolygonModel_AsyncWorkerThreadCreateFromURL, pLoadInfo, true));
-
-  result = udR_Success;
-
-epilogue:
-  if (result != udR_Success)
-    vcPolygonModel_Destroy(ppModel);
-
   return result;
 }
 
 udResult vcPolygonModel_CreateFromURL(vcPolygonModel **ppModel, const char *pURL, udWorkerPool *pWorkerPool)
 {
   udResult result;
+  udFilename fn(pURL);
 
-  AsyncPolygonModelLoadInfo *pLoadInfo = udAllocType(AsyncPolygonModelLoadInfo, 1, udAF_Zero);
-  UD_ERROR_NULL(pLoadInfo, udR_MemoryAllocationFailure);
+  if (udStrEquali(fn.GetExt(), ".obj"))
+  {
+    UD_ERROR_CHECK(vcPolygonModel_CreateFromOBJ(ppModel, pURL, pWorkerPool));
+  }
+  else if (udStrEquali(fn.GetExt(), ".vsm"))
+  {
+    void *pMemory = nullptr;
+    int64_t fileLength = 0;
 
-  *ppModel = nullptr;
+    UD_ERROR_CHECK(udFile_Load(pURL, &pMemory, &fileLength));
+    UD_ERROR_CHECK(vcPolygonModel_CreateFromVSMFInMemory(ppModel, (char *)pMemory, (int)fileLength, pWorkerPool));
 
-  pLoadInfo->ppPolygonModel = ppModel;
-  pLoadInfo->pURL = udStrdup(pURL);
-  pLoadInfo->pWorkerPool = pWorkerPool;
-
-  UD_ERROR_CHECK(udWorkerPool_AddTask(pWorkerPool, vcPolygonModel_AsyncWorkerThreadCreateFromURL, pLoadInfo, true));
+    udFree(pMemory);
+  }
+  else
+  {
+    UD_ERROR_SET(udR_Unsupported);
+  }
 
   result = udR_Success;
 
 epilogue:
-  if (result != udR_Success)
-    vcPolygonModel_Destroy(ppModel);
+  //if (result != udR_Success)
+   // vcPolygonModel_Destroy(ppModel);
 
   return result;
 }
@@ -511,9 +487,16 @@ udResult vcPolygonModel_Render(vcPolygonModel *pModel, const udDouble4x4 &modelM
   {
     vcPolygonModelMesh *pModelMesh = &pModel->pMeshes[i];
     vcPolygonModelShader *pPolygonShader = &gShaders[pModelMesh->materialID];
+    vcTexture *pDiffuseTexture = pModelMesh->material.pTexture;
 
-    if (pModelMesh->pMesh == nullptr || pModelMesh->material.pTexture == nullptr)
+    if (pModelMesh->pMesh == nullptr)// || pModelMesh->material.pTexture == nullptr)
       continue;
+
+    if (pDiffuseOverride)
+      pDiffuseTexture = pDiffuseOverride;
+
+    if (pDiffuseTexture == nullptr)
+      pDiffuseTexture = pWhiteTexture;
 
     // conditionally override
     if (passType == vcPMP_ColourOnly)
@@ -538,10 +521,6 @@ udResult vcPolygonModel_Render(vcPolygonModel *pModel, const udDouble4x4 &modelM
     pPolygonShader->everyObject.u_worldViewProjectionMatrix = udFloat4x4::create(viewProjectionMatrix * modelMatrix * pModel->modelOffset);
 
     vcShader_BindConstantBuffer(pPolygonShader->pShader, pPolygonShader->pEveryObjectConstantBuffer, &pPolygonShader->everyObject, sizeof(vcPolygonModelShader::everyObject));
-
-    vcTexture *pDiffuseTexture = pModelMesh->material.pTexture;
-    if (pDiffuseOverride)
-      pDiffuseTexture = pDiffuseOverride;
 
     vcShader_BindTexture(pPolygonShader->pShader, pDiffuseTexture, 0, pPolygonShader->pDiffuseSampler);
 
@@ -600,6 +579,8 @@ udResult vcPolygonModel_CreateShaders()
   UD_ERROR_IF(!vcShader_CreateFromText(&pPolygonShader->pShader, g_PolygonP3N3UV2VertexShader, g_DepthOnly_FragmentShader, vcP3N3UV2VertexLayout), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetConstantBuffer(&pPolygonShader->pEveryObjectConstantBuffer, pPolygonShader->pShader, "u_EveryObject", sizeof(vcPolygonModelShader::everyObject)), udR_InternalError);
 
+  vcTexture_Create(&pWhiteTexture, 1, 1, &WhitePixel);
+
   result = udR_Success;
 
 epilogue:
@@ -621,6 +602,8 @@ udResult vcPolygonModel_DestroyShaders()
     UD_ERROR_IF(!vcShader_ReleaseConstantBuffer(gShaders[i].pShader, gShaders[i].pEveryObjectConstantBuffer), udR_InternalError);
     vcShader_DestroyShader(&gShaders[i].pShader);
   }
+
+  vcTexture_Destroy(&pWhiteTexture);
 
   result = udR_Success;
 

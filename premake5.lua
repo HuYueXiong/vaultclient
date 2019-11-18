@@ -71,6 +71,8 @@ function injectvaultsdkbin()
 		links { "vaultSDK" }
 	end
 
+    defines {"__MEMORY_DEBUG__"}
+
 	if _OPTIONS["force-vaultsdk"] then
 		includedirs { "%{wks.location}/../vault/vaultsdk/src" }
 		defines { "BUILDING_VDK" }
