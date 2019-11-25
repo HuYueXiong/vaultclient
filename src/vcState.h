@@ -115,6 +115,8 @@ struct vcState
   udDouble3 worldMousePosLongLat;
   bool pickingSuccess;
   int udModelPickedIndex;
+  uint64_t udModelPickedNode;
+  udJSON udModelNodeAttributes;
 
   bool finishedStartup;
   bool forceLogout;
