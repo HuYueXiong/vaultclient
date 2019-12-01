@@ -1,7 +1,13 @@
+#include "udFile.h"
 #include "vcQuadTree.h"
 #include "vcGIS.h"
 #include "gl/vcTexture.h"
 #include <vector>
+#include <iostream>
+#include <string>
+#include <sstream>
+
+using namespace std;
 
 #define INVALID_NODE_INDEX 0xffffffff
 
@@ -12,6 +18,8 @@ const double tileToCameraCullAngle = UD_DEG2RAD(0.2);
 enum
 {
   NodeChildCount = 4,
+
+  DemTileResolution = 3601,
 };
 
 static const int vcTRMQToDepthModifiers[vcTRMQ_Total] = { 4, 2, 0 };
@@ -86,8 +94,7 @@ uint32_t vcQuadTree_FindFreeChildBlock(vcQuadTree *pQuadTree)
   return pQuadTree->nodes.used - NodeChildCount;
 }
 
-// TODO: DEM effect
-double vcQuadTree_PointToRectDistance(udDouble2 edges[4], const udDouble3 &point)
+double vcQuadTree_PointToRectDistance(vcQuadTree* pQuadTree, udDouble2 edges[4], const udDouble3 &point)
 {
   static const udInt2 edgePairs[] =
   {
@@ -110,8 +117,10 @@ double vcQuadTree_PointToRectDistance(udDouble2 edges[4], const udDouble3 &point
     double r = udDot2(edge, (point.toVector2() - p1)) / udMagSq2(edge);
 
     // 2d edge has been found, now factor in z for distances to camera
-    // TODO: tile heights (DEM)
     udDouble3 closestPointOnEdge = udDouble3::create(p1 + udClamp(r, 0.0, 1.0) * edge, 0.0);
+    //udDouble2 closestP2d = p1 + udClamp(r, 0.0, 1.0) * edge;
+    //double elevation = vcQuadTree_LookupDemHeight(pQuadTree, &closestP2d);
+    //udDouble3 closestPointOnEdge = udDouble3::create(closestP2d, elevation);
 
     double distToEdge = udMag3(closestPointOnEdge - point);
     closestEdgeDistance = (e == 0) ? distToEdge : udMin(closestEdgeDistance, distToEdge);
@@ -168,14 +177,18 @@ inline bool vcQuadTree_ShouldSubdivide(vcQuadTree *pQuadTree, double distanceMS,
   return distanceMS < (1.0 / (1 << (depth + vcTRMQToDepthModifiers[pQuadTree->pSettings->maptiles.mapQuality])));
 }
 
-void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeIndex, int currentDepth)
+void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeIndex, int currentDepth, int currentConfig)
 {
+  cout << "process quadtree node: " << currentNodeIndex << " at depth " << currentConfig;
   vcQuadTreeNode *pCurrentNode = &pQuadTree->nodes.pPool[currentNodeIndex];
+  cout << " visible?  " << pCurrentNode->visible << endl;
   pCurrentNode->childMask = 0;
 
   if (currentDepth >= pQuadTree->metaData.maxTreeDepth)
   {
+    pCurrentNode->meshConfig = currentConfig;
     ++pQuadTree->metaData.leafNodeCount;
+    cout << "LEAF!" << endl;
     return;
   }
 
@@ -183,7 +196,10 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
   {
     uint32_t freeBlockIndex = vcQuadTree_FindFreeChildBlock(pQuadTree);
     if (freeBlockIndex == INVALID_NODE_INDEX)
+    {
+      cout << "... no more free child block? " << endl;
       return;
+    }
 
     udInt3 childSlippy = udInt3::create(pCurrentNode->slippyPosition.x << 1, pCurrentNode->slippyPosition.y << 1, pCurrentNode->slippyPosition.z + 1);
     for (uint32_t i = 0; i < NodeChildCount; ++i)
@@ -214,16 +230,34 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
     pChildNode->parentIndex = currentNodeIndex;
     pChildNode->level = currentDepth + 1;
     pChildNode->visible = pCurrentNode->visible && vcQuadTree_IsNodeVisible(pQuadTree, pChildNode);
-
-    // TODO: tile heights (DEM)
+    cout << "   for child " << childQuadrant << ": visible first check ? " << pChildNode->visible <<endl; 
     double distanceToQuadrant;
 
     int32_t slippyManhattanDist = udAbs(pViewSlippyCoords.x - pChildNode->slippyPosition.x) + udAbs(pViewSlippyCoords.y - pChildNode->slippyPosition.y);
     if (slippyManhattanDist != 0)
     {
-      distanceToQuadrant = vcQuadTree_PointToRectDistance(pChildNode->worldBounds, pQuadTree->cameraTreePosition);
-      bool withinHorizon = udAbs(udASin(pQuadTree->cameraTreePosition.z / distanceToQuadrant)) >= tileToCameraCullAngle;
-      pChildNode->visible = pChildNode->visible && withinHorizon;
+      int32_t slippyManhattanDist = udAbs(pViewSlippyCoords.x - pChildNode->slippyPosition.x) + udAbs(pViewSlippyCoords.y - pChildNode->slippyPosition.y);
+      if (slippyManhattanDist != 0)
+      {
+        distanceToQuadrant = vcQuadTree_PointToRectDistance(pQuadTree, pChildNode->worldBounds, pQuadTree->cameraTreePosition);
+        bool withinHorizon = udAbs(udASin(pQuadTree->cameraTreePosition.z / distanceToQuadrant)) >= tileToCameraCullAngle;
+        pChildNode->visible = pChildNode->visible && withinHorizon;
+        cout << "       visible horizon check ? " << pChildNode->visible << endl;
+      }
+      else
+      {
+        distanceToQuadrant = udAbs(pQuadTree->cameraTreePosition.z);
+      }
+
+      // Artificially change the distances of tiles based on their relative depths.
+      // Flattens out lower layers, while raising levels of tiles further away.
+      // This is done because of perspectiveness, we actually want a non-uniform quad tree.
+      // Note: these values were just 'trial and error'ed
+      //int nodeDepthToTreeDepth = pQuadTree->expectedTreeDepth - currentDepth;
+      //distanceToQuadrant *= udLerp(1.0, (0.6 + 0.25 * nodeDepthToTreeDepth), udClamp(nodeDepthToTreeDepth, 0, 1));
+      //distanceToQuadrant = vcQuadTree_PointToRectDistance(pChildNode->worldBounds, pQuadTree->cameraTreePosition);
+      //bool withinHorizon = udAbs(udASin(pQuadTree->cameraTreePosition.z / distanceToQuadrant)) >= tileToCameraCullAngle;
+      //pChildNode->visible = pChildNode->visible && withinHorizon;
     }
     else
     {
@@ -248,30 +282,162 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
     if (vcQuadTree_ShouldSubdivide(pQuadTree, distanceMS, currentDepth))
       subdivMask |= 1 << childQuadrant;
     else
+    {
+      cout << "LEAF too!" << endl;
+      //pCurrentNode->meshConfig = currentConfig;
       ++pQuadTree->metaData.leafNodeCount;
+    }
   }
 
   //Figure out the mesh config for each quadrant to be subdived,
   // dpending on whethehr the adjacent quadrants will also be subdivided
   // See the index notation on line 200
+  int curConfig = 0;
   if (subdivMask & 1)
   { // bottom left
-      vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex , currentDepth + 1);
+    if (subdivMask & 2 && subdivMask & 4)
+      curConfig = 0;
+    else if (!(subdivMask & 2 || subdivMask & 4))
+      curConfig = 5;
+    else if (subdivMask & 2)
+      curConfig = 1;
+    else
+      curConfig = 4;
+    vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex , currentDepth + 1, curConfig);
   }
   if (subdivMask & 2)
   { // buttom right
-    vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex+1, currentDepth + 1);
+    if (subdivMask & 1 && subdivMask & 8)
+      curConfig = 0;
+    else if (!(subdivMask & 1 || subdivMask & 8))
+      curConfig = 8;
+    else if (subdivMask & 1)
+      curConfig = 1;
+    else
+      curConfig = 2;
+    vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex+1, currentDepth + 1, curConfig);
   }
 
   if (subdivMask & 4)
   { // top left
-    vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex+2, currentDepth + 1);
+    if (subdivMask & 1 && subdivMask & 8)
+      curConfig = 0;
+    else if (!(subdivMask & 1 || subdivMask & 8))
+      curConfig = 6;
+    else if (subdivMask & 1)
+      curConfig = 4;
+    else
+      curConfig = 3;
+    vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex+2, currentDepth + 1, curConfig);
   }
   if (subdivMask & 8)
   { // top right
-    vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex +3 , currentDepth + 1);
+    if (subdivMask & 2 && subdivMask & 4)
+      curConfig = 0;
+    else if (!(subdivMask & 2 || subdivMask & 4))
+      curConfig = 7;
+    else if (subdivMask & 2)
+      curConfig = 2;
+    else
+      curConfig = 3;
+    vcQuadTree_RecurseGenerateTree(pQuadTree, pCurrentNode->childBlockIndex +3 , currentDepth + 1, curConfig);
   }
 }
+
+void vcQuadTree_BuildDemData(vector<vcDemTile*>* pDemTiles)
+{
+  const char* tiles[] = { "D:\\Euclideon\\dev\\vaultclient\\builds\\assets\\S28E152.hgt", "D:\\Euclideon\\dev\\vaultclient\\builds\\assets\\S28E153.hgt" };
+
+  for (int i = 0; i < 2; ++i)
+  {
+    string fileName(tiles[i]);
+    size_t startPos = fileName.find_last_of('\\') + 1;
+    string geoRefStr = fileName.substr(startPos, fileName.find('.') - startPos);
+
+    vcDemTile* demTile = udAllocType(vcDemTile, 1, udAF_Zero);
+
+    //store the metadata parsed out from filename..
+    demTile->isS = geoRefStr.find('S') != string::npos;
+    demTile->isE = geoRefStr.find('E') != string::npos;
+
+    stringstream ss;
+    char longiName = 'E';
+    if (!demTile->isE)
+      longiName = 'W';
+
+    size_t longi_pos = geoRefStr.find(longiName);
+    ss.str(geoRefStr.substr(1, longi_pos - 1));
+    ss >> demTile->latitutde;
+
+    ss.clear();
+    ss.str(geoRefStr.substr(longi_pos + 1, geoRefStr.find('.') - longi_pos - 1));
+    ss >> demTile->longitude;
+
+
+    void* pFileData;
+    int64_t fileLen;
+    udFile_Load(tiles[i], &pFileData, &fileLen);
+    int outputSize = 3601;
+    int inputSize = 3601;
+    demTile->demData = udAllocType(int16_t, outputSize * outputSize, udAF_Zero);
+
+    int16_t lastValidHeight = 0;
+    for (int y = 0; y < outputSize; ++y)
+    {
+      for (int x = 0; x < outputSize; ++x)
+      {
+        uint16_t p = ((uint16_t*)pFileData)[y * inputSize + x];
+        p = ((p & 0xff00) >> 8) | ((p & 0x00ff) << 8);
+        if (p > 40000)
+          p = lastValidHeight;
+        lastValidHeight = p;
+        demTile->demData[y * outputSize + x] = p;
+      }
+    }
+
+    // clean up file data
+    udFree(pFileData);
+
+    pDemTiles->push_back(demTile);
+    //vcTexture_Create(&pDEMTexture[i], outputSize, outputSize, pRealignedPixels, vcTextureFormat_R16, vcTFM_Linear, false, vcTWM_Clamp);//, vcTCF_None, 16);
+  }
+
+
+
+  //printf("DEUBG dem:  size of demTiles: %d", demTiles.size());
+
+}
+
+uint16_t vcQuadTree_LookupDemHeight(vcQuadTree* pQuadTree, udDouble2* worldPos)
+{
+  udDouble3 geoCoord = udGeoZone_CartesianToLatLong(pQuadTree->gisSpace.zone, udDouble3::create(*worldPos, 0.0));
+  geoCoord[0] = abs(geoCoord[0] - 1);
+  geoCoord[1] = abs(geoCoord[1]);
+
+  // find the dem tile this geoCoord falls on, if none return 0;
+  uint16_t lat = uint16_t(floor(geoCoord[0]));
+  uint16_t lon = uint16_t(floor(geoCoord[1]));
+
+  vcDemTile* targetTile = NULL;
+  for (int i = 0; i < pQuadTree->pDemTiles->size(); ++i)
+  {
+    vcDemTile* currentTile = pQuadTree->pDemTiles->at(i);
+    if (currentTile->latitutde == lat && currentTile->longitude == lon)
+    {
+      targetTile = currentTile;
+      break;
+    }
+  }
+
+  if (!targetTile)
+    return 0; // doesn't fall on any DEM tile, keep it flat.
+
+  float demIndexLat = DemTileResolution * (geoCoord[0] - lat);
+  float demIndexLon = DemTileResolution * (geoCoord[1] - lon);
+
+  return targetTile->demData[int(demIndexLat) * DemTileResolution + int(demIndexLon)];
+}
+
 
 void vcQuadTree_CleanupNodes(vcQuadTree *pQuadTree)
 {
@@ -290,6 +456,11 @@ void vcQuadTree_Create(vcQuadTree *pQuadTree, vcSettings *pSettings)
   vcQuadTree_Reset(pQuadTree);
 
   pQuadTree->pSettings = pSettings;
+
+  //Setup for DEM.
+  pQuadTree->pDemTiles = new std::vector<vcDemTile*>();
+  vcQuadTree_BuildDemData(pQuadTree->pDemTiles);
+
 }
 
 void vcQuadTree_Destroy(vcQuadTree *pQuadTree)
@@ -298,6 +469,13 @@ void vcQuadTree_Destroy(vcQuadTree *pQuadTree)
 
   udFree(pQuadTree->nodes.pPool);
   pQuadTree->nodes.capacity = 0;
+
+  for (size_t i = 0; i < pQuadTree->pDemTiles->size(); ++i)
+  {
+    udFree(pQuadTree->pDemTiles->at(i)->demData);
+    udFree(pQuadTree->pDemTiles->at(i));
+  }
+  delete pQuadTree->pDemTiles;
 }
 
 void vcQuadTree_Reset(vcQuadTree *pQuadTree)
@@ -448,7 +626,7 @@ void vcQuadTree_Update(vcQuadTree *pQuadTree, const vcQuadTreeViewInfo &viewInfo
       pQuadTree->nodes.pPool[rootBlockIndex + c].touched = true;
     pQuadTree->nodes.pPool[pQuadTree->rootIndex].visible = true;
 
-    vcQuadTree_RecurseGenerateTree(pQuadTree, pQuadTree->rootIndex, 0);
+    vcQuadTree_RecurseGenerateTree(pQuadTree, pQuadTree->rootIndex, 0, 0);
   }
 }
 

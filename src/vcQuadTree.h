@@ -5,6 +5,7 @@
 
 #include "udMath.h"
 #include "vcGIS.h"
+#include <vector>
 
 struct vcTexture;
 
@@ -70,6 +71,16 @@ struct vcQuadTreeMetaData
   int nodeRenderCount;
 };
 
+struct vcDemTile
+{
+  uint16_t latitutde;
+  bool isS;
+  uint16_t longitude;
+  bool isE;
+
+  int16_t* demData;
+};
+
 struct vcQuadTree
 {
   vcSettings *pSettings;
@@ -83,6 +94,8 @@ struct vcQuadTree
   int expectedTreeDepth; // depth of the deepest node
   double quadTreeWorldSize;
   double quadTreeHeightOffset;
+
+  std::vector<vcDemTile*>* pDemTiles;
 
   uint32_t rootIndex;
   bool completeRerootRequired;
@@ -109,8 +122,10 @@ void vcQuadTree_Create(vcQuadTree *pQuadTree, vcSettings *pSettings);
 void vcQuadTree_Destroy(vcQuadTree *pQuadTree);
 void vcQuadTree_Reset(vcQuadTree *pQuadTree);
 
-void vcQuadTree_Update(vcQuadTree *pQuadTree, const vcQuadTreeViewInfo &viewInfo);
+void vcQuadTree_Update(vcQuadTree* pQuadTree, const vcQuadTreeViewInfo &viewInfo);
 void vcQuadTree_Prune(vcQuadTree *pQuadTree);
+
+uint16_t vcQuadTree_LookupDemHeight(vcQuadTree* pQuadTree, udDouble2* worldPos);
 
 bool vcQuadTree_IsNodeVisible(const vcQuadTree *pQuadTree, const vcQuadTreeNode *pNode);
 
