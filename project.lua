@@ -23,8 +23,9 @@ project "vaultClient"
 	includedirs { "3rdParty/Imgui" }
 	includedirs { "3rdParty/stb" }
 	includedirs { "3rdParty/easyexif" }
+	includedirs { "3rdParty/HLSLcc/include" }
 
-	links { "udCore" .. (projectSuffix or "") }
+	links { "udCore" .. (projectSuffix or ""), "HLSLcc" }
 
 	defines { "IMGUI_DISABLE_OBSOLETE_FUNCTIONS" }
 
@@ -147,6 +148,7 @@ project "vaultClient"
 		links { "z" }
 
 	filter { "options:gfxapi=opengl" }
+		links { "d3d11.lib", "d3dcompiler.lib", "dxgi.lib", "dxguid.lib" }
 		defines { "GRAPHICS_API_OPENGL=1" }
 
 	filter { "options:gfxapi=d3d11" }

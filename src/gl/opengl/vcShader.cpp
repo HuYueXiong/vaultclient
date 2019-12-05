@@ -3,6 +3,11 @@
 #include "udPlatformUtil.h"
 #include "udStringUtil.h"
 
+#include "hlslcc.h"
+#include <d3d11.h>
+#include <d3dcompiler.h>
+#include <D3D11Shader.h>
+
 GLint vcBuildShader(GLenum type, const GLchar *shaderCode)
 {
 #if !(UDPLATFORM_IOS || UDPLATFORM_IOS_SIMULATOR)
@@ -10,10 +15,44 @@ GLint vcBuildShader(GLenum type, const GLchar *shaderCode)
     return (GLint)-1;
 #endif
 
+  int flags = HLSLCC_FLAG_UNIFORM_BUFFER_OBJECT;// | HLSLCC_FLAG_DISABLE_EXPLICIT_LOCATIONS;
+  if (type == GL_VERTEX_SHADER)
+    flags |= PS_FLAG_VERTEX_SHADER;
+  else if (type == GL_FRAGMENT_SHADER)
+    flags |= PS_FLAG_PIXEL_SHADER;
+
+  HLSLccSamplerPrecisionInfo precisionInfo;
+  GLSLShader shader;
+  HLSLccReflection callbacks;
+  GlExtensions extensions;
+
+  ID3D10Blob *pBlob = nullptr;
+  ID3D10Blob *pErrorBlob = nullptr;
+
+  // Vertex Shader
+  D3DCompile(shaderCode, udStrlen(shaderCode), NULL, NULL, NULL, "main", type == GL_VERTEX_SHADER ? "vs_4_0" : "ps_4_0", 0, 0, &pBlob, &pErrorBlob);
+
+  if (pBlob == nullptr)
+  {
+    udDebugPrintf("%s", pErrorBlob->GetBufferPointer());
+    pErrorBlob->Release();
+
+    return false;
+  }
+
+  int res = TranslateHLSLFromMem((const char *)pBlob->GetBufferPointer(), flags, LANG_330, &extensions, nullptr, precisionInfo, callbacks, &shader);
+  pBlob->Release();
+
+  if (res != 1)
+  {
+    //udDebugPrintf("%s", callbacks.);
+  }
+
+  const char *pSource = shader.sourceCode.c_str();
   GLint compiled;
-  GLint shaderCodeLen = (GLint)strlen(shaderCode);
-  GLint shaderObject = glCreateShader(type);
-  glShaderSource(shaderObject, 1, &shaderCode, &shaderCodeLen);
+  GLint shaderCodeLen = (GLint)strlen(pSource);
+  GLint shaderObject = glCreateShader(shader.shaderType);
+  glShaderSource(shaderObject, 1, &pSource, &shaderCodeLen);
   glCompileShader(shaderObject);
   glGetShaderiv(shaderObject, GL_COMPILE_STATUS, &compiled);
 
@@ -73,6 +112,8 @@ GLint vcBuildProgram(GLint vertexShader, GLint fragmentShader, GLint geometrySha
   return programObject;
 }
 
+#include "gl/vcRenderShaders.h"
+
 bool vcShader_CreateFromText(vcShader **ppShader, const char *pVertexShader, const char *pFragmentShader, const vcVertexLayoutTypes * /*pInputTypes*/, uint32_t /*totalInputs*/, const char *pGeometryShader /*= nullptr*/)
 {
   if (ppShader == nullptr || pVertexShader == nullptr || pFragmentShader == nullptr)
@@ -88,13 +129,15 @@ bool vcShader_CreateFromText(vcShader **ppShader, const char *pVertexShader, con
   geometryShaderId = vcBuildShader(GL_GEOMETRY_SHADER, pGeometryShader);
 #endif
 
+  VERIFY_GL();
   pShader->programID = vcBuildProgram(vcBuildShader(GL_VERTEX_SHADER, pVertexShader), vcBuildShader(GL_FRAGMENT_SHADER, pFragmentShader), geometryShaderId);
-
+  VERIFY_GL();
   if (pShader->programID == GL_INVALID_INDEX)
     udFree(pShader);
 
   *ppShader = pShader;
 
+  VERIFY_GL();
   return (pShader != nullptr);
 }
 

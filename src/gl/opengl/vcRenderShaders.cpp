@@ -1,4 +1,4 @@
-#include "gl/vcRenderShaders.h"
+/*#include "gl/vcRenderShaders.h"
 #include "udPlatformUtil.h"
 
 #if UDPLATFORM_IOS || UDPLATFORM_IOS_SIMULATOR || UDPLATFORM_EMSCRIPTEN
@@ -1152,3 +1152,4 @@ const char *const g_udGPURenderGeomGeometryShader = FRAG_HEADER R"shader(
     EndPrimitive();
   }
 )shader";
+*/

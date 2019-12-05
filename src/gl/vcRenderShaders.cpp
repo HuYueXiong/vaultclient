@@ -71,10 +71,10 @@ const char *const g_VisualizationFragmentShader = R"shader(
     float2 sampleUV3 = uv + sampleOffsets.zy;
     float2 sampleUV4 = uv - sampleOffsets.zy;
 
-    float sampleDepth1 = texture1.Sample(sampler1, sampleUV1).x;
-    float sampleDepth2 = texture1.Sample(sampler1, sampleUV2).x;
-    float sampleDepth3 = texture1.Sample(sampler1, sampleUV3).x;
-    float sampleDepth4 = texture1.Sample(sampler1, sampleUV4).x;
+    float sampleDepth1 = depthTexture.Sample(depthSampler, sampleUV1).x;
+    float sampleDepth2 = depthTexture.Sample(depthSampler, sampleUV2).x;
+    float sampleDepth3 = depthTexture.Sample(depthSampler, sampleUV3).x;
+    float sampleDepth4 = depthTexture.Sample(depthSampler, sampleUV4).x;
 
     float4 eyePosition1 = mul(u_inverseProjection, float4(sampleUV1.x * 2.0 - 1.0, (1.0 - sampleUV1.y) * 2.0 - 1.0, sampleDepth1, 1.0));
     float4 eyePosition2 = mul(u_inverseProjection, float4(sampleUV2.x * 2.0 - 1.0, (1.0 - sampleUV2.y) * 2.0 - 1.0, sampleDepth2, 1.0));
@@ -209,11 +209,11 @@ const char *const g_ViewShedFragmentShader = R"shader(
     float4 Color0 : SV_Target;
   };
 
-  sampler colourSampler;
-  Texture2D colourTexture;
-
   sampler depthSampler;
   Texture2D depthTexture;
+
+  sampler shadowMapSampler;
+  Texture2D shadowMapTexture;
 
   // Should match CPU
   #define MAP_COUNT 3
@@ -239,7 +239,7 @@ const char *const g_ViewShedFragmentShader = R"shader(
     PS_OUTPUT output;
 
     float4 col = float4(0.0, 0.0, 0.0, 0.0);
-    float depth = colourTexture.Sample(colourSampler, input.uv).x;
+    float depth = depthTexture.Sample(depthSampler, input.uv).x;
 
     float4 fragEyePosition = mul(u_inverseProjection, float4(input.uv.x * 2.0 - 1.0, (1.0 - input.uv.y) * 2.0 - 1.0, depth, 1.0));
     fragEyePosition /= fragEyePosition.w;
@@ -279,7 +279,7 @@ const char *const g_ViewShedFragmentShader = R"shader(
     if (length(sampleUV) > 0.0)
     {
       // fragment is inside the view shed bounds
-      float shadowMapDepth = depthTexture.Sample(depthSampler, sampleUV.xy).x;
+      float shadowMapDepth = shadowMapTexture.Sample(shadowMapSampler, sampleUV.xy).x;
       float diff = (0.2 * u_nearFarPlane.y) * (linearizeDepth(sampleUV.z) - linearizeDepth(shadowMapDepth));
       col = lerp(u_visibleColour, u_notVisibleColour, clamp(diff, 0.0, 1.0));
     }

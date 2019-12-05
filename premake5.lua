@@ -276,6 +276,8 @@ solution "vaultClient"
 		dofile "3rdParty/udcore/project.lua"
 	end
 
+	dofile "3rdParty/HLSLcc.lua"
+
 	filter {}
 	removeflags { "FatalWarnings" }
 

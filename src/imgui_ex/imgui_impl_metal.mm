@@ -199,7 +199,7 @@ void ImGui_ImplMetal_DestroyDeviceObjects()
     [_renderer.encoders[0] setRenderPipelineState:_pipeline];
 
     vcShader_BindConstantBuffer(pMetalShader, metalMatrix, &ortho_projection, sizeof(ortho_projection));
-    vcShader_GetSamplerIndex(&pMetalSampler, pMetalShader, "Texture");
+    vcShader_GetSamplerIndex(&pMetalSampler, pMetalShader, "colourTexture");
 
     if (drawData->CmdListsCount != 0 && pMetalMesh == nullptr)
         vcMesh_Create(&pMetalMesh, vcImGuiVertexLayout, 3, drawData->CmdLists[0]->VtxBuffer.Data, drawData->CmdLists[0]->VtxBuffer.Size, drawData->CmdLists[0]->IdxBuffer.Data, drawData->CmdLists[0]->IdxBuffer.Size, vcMF_Dynamic);
