@@ -105,9 +105,11 @@ double vcQuadTree_PointToRectDistance(vcQuadTree* pQuadTree, udDouble2 edges[4],
   };
 
   // Not true distance, XY plane distance has more weighting
+  // Note: this part shouldn't take DEM into consideration. We need a distance from camera postion to the *projection*
+  // of the target tile on the x-y plane.
   double closestEdgeDistance = 0.0;
 
-  // test each edge to find minimum distance to quadrant shape (2d)
+  // test each edge to find minimum distance to quadrant shape (2d) 
   for (int e = 0; e < 4; ++e)
   {
     udDouble2 p1 = edges[edgePairs[e].x];
@@ -117,15 +119,12 @@ double vcQuadTree_PointToRectDistance(vcQuadTree* pQuadTree, udDouble2 edges[4],
     double r = udDot2(edge, (point.toVector2() - p1)) / udMagSq2(edge);
 
     // 2d edge has been found, now factor in z for distances to camera
-    udDouble3 closestPointOnEdge = udDouble3::create(p1 + udClamp(r, 0.0, 1.0) * edge, 0.0);
-    //udDouble2 closestP2d = p1 + udClamp(r, 0.0, 1.0) * edge;
-    //double elevation = vcQuadTree_LookupDemHeight(pQuadTree, &closestP2d);
-    //udDouble3 closestPointOnEdge = udDouble3::create(closestP2d, elevation);
 
+    udDouble3 closestPointOnEdge = udDouble3::create(p1 + udClamp(r, 0.0, 1.0) * edge, 0.0);
     double distToEdge = udMag3(closestPointOnEdge - point);
+
     closestEdgeDistance = (e == 0) ? distToEdge : udMin(closestEdgeDistance, distToEdge);
   }
-
   return closestEdgeDistance;
 }
 
@@ -179,16 +178,13 @@ inline bool vcQuadTree_ShouldSubdivide(vcQuadTree *pQuadTree, double distanceMS,
 
 void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeIndex, int currentDepth, int currentConfig)
 {
-  cout << "process quadtree node: " << currentNodeIndex << " at depth " << currentConfig;
   vcQuadTreeNode *pCurrentNode = &pQuadTree->nodes.pPool[currentNodeIndex];
-  cout << " visible?  " << pCurrentNode->visible << endl;
   pCurrentNode->childMask = 0;
 
   if (currentDepth >= pQuadTree->metaData.maxTreeDepth)
   {
     pCurrentNode->meshConfig = currentConfig;
     ++pQuadTree->metaData.leafNodeCount;
-    cout << "LEAF!" << endl;
     return;
   }
 
@@ -197,7 +193,6 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
     uint32_t freeBlockIndex = vcQuadTree_FindFreeChildBlock(pQuadTree);
     if (freeBlockIndex == INVALID_NODE_INDEX)
     {
-      cout << "... no more free child block? " << endl;
       return;
     }
 
@@ -230,7 +225,6 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
     pChildNode->parentIndex = currentNodeIndex;
     pChildNode->level = currentDepth + 1;
     pChildNode->visible = pCurrentNode->visible && vcQuadTree_IsNodeVisible(pQuadTree, pChildNode);
-    cout << "   for child " << childQuadrant << ": visible first check ? " << pChildNode->visible <<endl; 
     double distanceToQuadrant;
 
     int32_t slippyManhattanDist = udAbs(pViewSlippyCoords.x - pChildNode->slippyPosition.x) + udAbs(pViewSlippyCoords.y - pChildNode->slippyPosition.y);
@@ -242,7 +236,6 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
         distanceToQuadrant = vcQuadTree_PointToRectDistance(pQuadTree, pChildNode->worldBounds, pQuadTree->cameraTreePosition);
         bool withinHorizon = udAbs(udASin(pQuadTree->cameraTreePosition.z / distanceToQuadrant)) >= tileToCameraCullAngle;
         pChildNode->visible = pChildNode->visible && withinHorizon;
-        cout << "       visible horizon check ? " << pChildNode->visible << endl;
       }
       else
       {
@@ -283,7 +276,6 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
       subdivMask |= 1 << childQuadrant;
     else
     {
-      cout << "LEAF too!" << endl;
       //pCurrentNode->meshConfig = currentConfig;
       ++pQuadTree->metaData.leafNodeCount;
     }
