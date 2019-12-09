@@ -2,6 +2,7 @@
 #define vcQuadTree_h__
 
 #include "vcSettings.h"
+#include "vcTileRenderer.h" // this is temporary. it is just so we can see TileVertexResolution
 
 #include "udMath.h"
 #include "vcGIS.h"
@@ -55,6 +56,8 @@ struct vcQuadTreeNode
   // cached
   udDouble2 worldBounds[4]; // corners
   udDouble2 tileCenter, tileExtents;
+
+  uint16_t demHeight[TileVertexResolution * TileVertexResolution]; // TEMPORARY
 
   vcNodeRenderInfo renderInfo;
 };
@@ -125,7 +128,7 @@ void vcQuadTree_Reset(vcQuadTree *pQuadTree);
 void vcQuadTree_Update(vcQuadTree* pQuadTree, const vcQuadTreeViewInfo &viewInfo);
 void vcQuadTree_Prune(vcQuadTree *pQuadTree);
 
-uint16_t vcQuadTree_LookupDemHeight(vcQuadTree* pQuadTree, udDouble2* worldPos);
+uint16_t vcQuadTree_LookupDemHeight(vcQuadTree* pQuadTree, const udDouble2 &worldPos);
 
 bool vcQuadTree_IsNodeVisible(const vcQuadTree *pQuadTree, const vcQuadTreeNode *pNode);
 

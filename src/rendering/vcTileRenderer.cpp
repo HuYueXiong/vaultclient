@@ -30,7 +30,6 @@ using namespace std;
 
 enum
 {
-  TileVertexResolution = 3, // This should match GPU struct size
   TileIndexResolution = (TileVertexResolution - 1),
 
   MaxTextureUploadsPerFrame = 3,
@@ -897,21 +896,20 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
 
   // This logic assumes a tile with 3*3 vert 
   udDouble2 worldPos = udDouble2::create(0, 0);
+  float invRes = 1.0f / (TileVertexResolution - 1.0f);
   for (int t = 0; t < TileVertexResolution * TileVertexResolution; ++t)
   {
-    unsigned int idx_y = t / TileVertexResolution;
-    unsigned int idx_x = t % TileVertexResolution;
-    // TODO: make this general 
-    worldPos[0] = pNode->worldBounds[0].x + idx_x * 0.5 * (pNode->worldBounds[1].x - pNode->worldBounds[0].x);
-    worldPos[1] = pNode->worldBounds[0].y + idx_y * 0.5 * (pNode->worldBounds[2].y - pNode->worldBounds[0].y);
+    float idx_y = (t / TileVertexResolution) * invRes;
+    float idx_x = (t % TileVertexResolution) * invRes;
 
-    double dem_height = double(vcQuadTree_LookupDemHeight(&pTileRenderer->quadTree, &worldPos));
-    //dem_height = 0;
-    udFloat4 eyeSpaceVertexPosition = udFloat4::create(view * udDouble4::create( worldPos, dem_height, 1.0));
+    worldPos.x = udLerp(pNode->worldBounds[0].x, pNode->worldBounds[3].x, idx_x);
+    worldPos.y = udLerp(pNode->worldBounds[0].y, pNode->worldBounds[3].y, idx_y);
+
+    udFloat4 eyeSpaceVertexPosition = udFloat4::create(view * udDouble4::create( worldPos, pNode->demHeight[t], 1.0));
     pTileRenderer->presentShader.everyObject.eyePositions[t] = eyeSpaceVertexPosition;
   }
 
-  pTileRenderer->presentShader.everyObject.colour = udFloat4::create(1.f, 1.f, 1.f, tileTransparency);
+  //pTileRenderer->presentShader.everyObject.colour = udFloat4::create(1.f, 1.f, 1.f, tileTransparency);
 #if VISUALIZE_DEBUG_TILES
   pTileRenderer->presentShader.everyObject.colour.w = 1.0f;
   if (!pNode->renderInfo.pTexture)
@@ -972,7 +970,7 @@ bool vcTileRenderer_RecursiveBuildRenderQueue(vcTileRenderer *pTileRenderer, vcQ
       bool canDrawChildNode = canParentDraw || vcTileRenderer_CanNodeDraw(pChildNode);
       // we do want to call the recursive-build function anyways.
       bool childToRender = vcTileRenderer_RecursiveBuildRenderQueue(pTileRenderer, pChildNode, canDrawChildNode);
-      toRender = toRender || !childToRender;
+      //toRender = toRender || !childToRender;
     }
   }
 
@@ -1024,6 +1022,8 @@ void vcTileRenderer_DrawRenderQueue(vcTileRenderer *pTileRenderer, const udDoubl
   //cout << "========vcTileRenderer : Done drawing the queues  =======" << endl;
 }
 
+#include "gl\opengl\vcOpenGL.h"
+
 void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &view, const udDouble4x4 &proj)
 {
   vcQuadTreeNode *pRootNode = &pTileRenderer->quadTree.nodes.pPool[pTileRenderer->quadTree.rootIndex];
@@ -1035,17 +1035,17 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
 
   udDouble4x4 viewWithMapTranslation = view * udDouble4x4::translation(0, 0, pTileRenderer->pSettings->maptiles.mapHeight);
 
-  vcGLStencilSettings stencil = {};
-  stencil.writeMask = 0xFF;
-  stencil.compareFunc = vcGLSSF_Equal;
-  stencil.compareValue = 0;
-  stencil.compareMask = 0xFF;
-  stencil.onStencilFail = vcGLSSOP_Keep;
-  stencil.onDepthFail = vcGLSSOP_Keep;
-  stencil.onStencilAndDepthPass = vcGLSSOP_Increment;
+  //vcGLStencilSettings stencil = {};
+  //stencil.writeMask = 0xFF;
+  //stencil.compareFunc = vcGLSSF_Equal;
+  //stencil.compareValue = 0;
+  //stencil.compareMask = 0xFF;
+  //stencil.onStencilFail = vcGLSSOP_Keep;
+  //stencil.onDepthFail = vcGLSSOP_Keep;
+  //stencil.onStencilAndDepthPass = vcGLSSOP_Increment;
 
   vcGLState_SetFaceMode(vcGLSFM_Solid, vcGLSCM_None);
-  vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true, &stencil);
+  vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true);//&stencil);
 
   if (pTileRenderer->pSettings->maptiles.transparency >= 1.0f)
     vcGLState_SetBlendMode(vcGLSBM_None);
@@ -1055,44 +1055,60 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
   if (pTileRenderer->pSettings->maptiles.blendMode == vcMTBM_Overlay)
   {
     vcGLState_SetViewportDepthRange(0.0f, 0.0f);
-    vcGLState_SetDepthStencilMode(vcGLSDM_Always, false, &stencil);
+    vcGLState_SetDepthStencilMode(vcGLSDM_Always, false);//, &stencil);
   }
   else if (pTileRenderer->pSettings->maptiles.blendMode == vcMTBM_Underlay)
   {
     vcGLState_SetViewportDepthRange(1.0f, 1.0f);
   }
 
-  vcShader_Bind(pTileRenderer->presentShader.pProgram);
-  pTileRenderer->presentShader.everyObject.projectionMatrix = udFloat4x4::create(proj);
 
-  pRootNode->renderInfo.transparency = 1.0f;
-  vcTileRenderer_RecursiveBuildRenderQueue(pTileRenderer, pRootNode, vcTileRenderer_CanNodeDraw(pRootNode));
-  vcTileRenderer_DrawRenderQueue(pTileRenderer, viewWithMapTranslation);
+  // draw tile as normal on first pass
+  // draw just a wireframe on the second pass
+  for (int i = 0; i < 2; ++i)
+  {
+    vcShader_Bind(pTileRenderer->presentShader.pProgram);
+    pTileRenderer->presentShader.everyObject.projectionMatrix = udFloat4x4::create(proj);
+    pTileRenderer->presentShader.everyObject.colour = udFloat4::create(1.f, 1.f, 1.f, pTileRenderer->pSettings->maptiles.transparency);
+
+    if (i == 1)
+    {
+      glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+      pTileRenderer->presentShader.everyObject.colour = udFloat4::create(1.f, 0.f, 1.f, 1.f);//pTileRenderer->pSettings->maptiles.transparency);
+      vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true, nullptr);//&stencil);
+    }
+
+    pRootNode->renderInfo.transparency = 1.0f;
+    vcTileRenderer_RecursiveBuildRenderQueue(pTileRenderer, pRootNode, vcTileRenderer_CanNodeDraw(pRootNode));
+    vcTileRenderer_DrawRenderQueue(pTileRenderer, viewWithMapTranslation);
+  }
 
   // Render the root tile again (if it hasn't already been rendered normally) to cover up gaps between tiles
-  if (!pRootNode->rendered && pRootNode->renderInfo.pTexture && vcTileRenderer_NodeHasValidBounds(pRootNode))
-    vcTileRenderer_DrawNode(pTileRenderer, pRootNode, pTileRenderer->pTileMeshes->at(0), viewWithMapTranslation, false);
+  //if (!pRootNode->rendered && pRootNode->renderInfo.pTexture && vcTileRenderer_NodeHasValidBounds(pRootNode))
+  //  vcTileRenderer_DrawNode(pTileRenderer, pRootNode, pTileRenderer->pTileMeshes->at(0), viewWithMapTranslation, false);
 
   // Draw transparent tiles
   if (pTileRenderer->pTransparentTiles->size() > 0)
   {
     // We know there will always be a stenciled opaque tile behind every transparent tile, so draw
     // with no depth testing, but stencil testing for map tiles
-    stencil.writeMask = 0xFF;
-    stencil.compareFunc = vcGLSSF_NotEqual;
-    stencil.compareValue = 0;
-    stencil.compareMask = 0xFF;
-    stencil.onStencilFail = vcGLSSOP_Keep;
-    stencil.onDepthFail = vcGLSSOP_Keep;
-    stencil.onStencilAndDepthPass = vcGLSSOP_Keep;
-
-    vcGLState_SetDepthStencilMode(vcGLSDM_Always, false, &stencil);
-    vcGLState_SetBlendMode(vcGLSBM_Interpolative);
+    //vcGLStencilSettings stencil = {};
+    //stencil.writeMask = 0xFF;
+    //stencil.compareFunc = vcGLSSF_GreaterOrEqual;
+    //stencil.compareMask = 0xFF;
+    //stencil.onStencilFail = vcGLSSOP_Keep;
+    //stencil.onDepthFail = vcGLSSOP_Keep;
+    //stencil.onStencilAndDepthPass = vcGLSSOP_Keep;
+    
+    //vcGLState_SetBlendMode(vcGLSBM_Interpolative);
     for (auto tile : (*pTileRenderer->pTransparentTiles))
     {
+      //stencil.compareValue = tile->level;
+      //vcGLState_SetDepthStencilMode(vcGLSDM_Always, false, &stencil);
+
       tile->renderInfo.transparency = udMin(1.0f, tile->renderInfo.transparency + pTileRenderer->frameDeltaTime * sTileFadeSpeed);
-      if (tile->visible && vcTileRenderer_NodeHasValidBounds(tile))
-        vcTileRenderer_DrawNode(pTileRenderer, tile, pTileRenderer->pTileMeshes->at(0), viewWithMapTranslation, false);
+      //if (tile->visible && vcTileRenderer_NodeHasValidBounds(tile))
+      //  vcTileRenderer_DrawNode(pTileRenderer, tile, pTileRenderer->pTileMeshes->at(0), viewWithMapTranslation, false);
     }
 
     for (int i = 0; i < int(pTileRenderer->pTransparentTiles->size()); ++i)
@@ -1113,6 +1129,8 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
   vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true, nullptr);
   vcGLState_SetBlendMode(vcGLSBM_None);
   vcShader_Bind(nullptr);
+
+  glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
 #if VISUALIZE_DEBUG_TILES
   printf("touched=%d, visible=%d, rendered=%d, leaves=%d\n", pTileRenderer->quadTree.metaData.nodeTouchedCount, pTileRenderer->quadTree.metaData.visibleNodeCount, pTileRenderer->quadTree.metaData.nodeRenderCount, pTileRenderer->quadTree.metaData.leafNodeCount);

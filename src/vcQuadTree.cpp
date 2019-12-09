@@ -145,6 +145,17 @@ void vcQuadTree_CalculateNodeBounds(vcQuadTree *pQuadTree, vcQuadTreeNode *pNode
     pNode->worldBounds[edge] = localCorner.toVector2();
   }
 
+  udDouble2 worldPos = udDouble2::create(0, 0);
+  for (int t = 0; t < TileVertexResolution * TileVertexResolution; ++t)
+  {
+     float idx_y = (t / TileVertexResolution) / (TileVertexResolution - 1.0f);
+     float idx_x = (t % TileVertexResolution) / (TileVertexResolution - 1.0f);
+     worldPos.x = udLerp(pNode->worldBounds[0].x, pNode->worldBounds[3].x, idx_x);
+     worldPos.y = udLerp(pNode->worldBounds[0].y, pNode->worldBounds[3].y, idx_y);
+
+    pNode->demHeight[t] = vcQuadTree_LookupDemHeight(pQuadTree, worldPos);
+  }
+
   udDouble2 boundsMin = udDouble2::create(udMin(udMin(udMin(pNode->worldBounds[0].x, pNode->worldBounds[1].x), pNode->worldBounds[2].x), pNode->worldBounds[3].x),
     udMin(udMin(udMin(pNode->worldBounds[0].y, pNode->worldBounds[1].y), pNode->worldBounds[2].y), pNode->worldBounds[3].y));
   udDouble2 boundsMax = udDouble2::create(udMax(udMax(udMax(pNode->worldBounds[0].x, pNode->worldBounds[1].x), pNode->worldBounds[2].x), pNode->worldBounds[3].x),
@@ -230,27 +241,10 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
     int32_t slippyManhattanDist = udAbs(pViewSlippyCoords.x - pChildNode->slippyPosition.x) + udAbs(pViewSlippyCoords.y - pChildNode->slippyPosition.y);
     if (slippyManhattanDist != 0)
     {
-      int32_t slippyManhattanDist = udAbs(pViewSlippyCoords.x - pChildNode->slippyPosition.x) + udAbs(pViewSlippyCoords.y - pChildNode->slippyPosition.y);
-      if (slippyManhattanDist != 0)
-      {
-        distanceToQuadrant = vcQuadTree_PointToRectDistance(pQuadTree, pChildNode->worldBounds, pQuadTree->cameraTreePosition);
-        bool withinHorizon = udAbs(udASin(pQuadTree->cameraTreePosition.z / distanceToQuadrant)) >= tileToCameraCullAngle;
-        pChildNode->visible = pChildNode->visible && withinHorizon;
-      }
-      else
-      {
-        distanceToQuadrant = udAbs(pQuadTree->cameraTreePosition.z);
-      }
-
-      // Artificially change the distances of tiles based on their relative depths.
-      // Flattens out lower layers, while raising levels of tiles further away.
-      // This is done because of perspectiveness, we actually want a non-uniform quad tree.
-      // Note: these values were just 'trial and error'ed
-      //int nodeDepthToTreeDepth = pQuadTree->expectedTreeDepth - currentDepth;
-      //distanceToQuadrant *= udLerp(1.0, (0.6 + 0.25 * nodeDepthToTreeDepth), udClamp(nodeDepthToTreeDepth, 0, 1));
-      //distanceToQuadrant = vcQuadTree_PointToRectDistance(pChildNode->worldBounds, pQuadTree->cameraTreePosition);
-      //bool withinHorizon = udAbs(udASin(pQuadTree->cameraTreePosition.z / distanceToQuadrant)) >= tileToCameraCullAngle;
-      //pChildNode->visible = pChildNode->visible && withinHorizon;
+      distanceToQuadrant = vcQuadTree_PointToRectDistance(pQuadTree, pChildNode->worldBounds, pQuadTree->cameraTreePosition);
+      bool withinHorizon = udAbs(udASin(pQuadTree->cameraTreePosition.z / distanceToQuadrant)) >= tileToCameraCullAngle;
+      pChildNode->visible = pChildNode->visible && withinHorizon;
+      cout << "       visible horizon check ? " << pChildNode->visible << endl;
     }
     else
     {
@@ -338,7 +332,8 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
 
 void vcQuadTree_BuildDemData(vector<vcDemTile*>* pDemTiles)
 {
-  const char* tiles[] = { "D:\\Euclideon\\dev\\vaultclient\\builds\\assets\\S28E152.hgt", "D:\\Euclideon\\dev\\vaultclient\\builds\\assets\\S28E153.hgt" };
+  const char *tiles[] = { "D:\\Euclideon\\dev\\vaultclient\\builds\\assets\\S28E152.hgt", "D:\\Euclideon\\dev\\vaultclient\\builds\\assets\\S28E153.hgt" };
+  //const char* tiles[] = { "D:\\git\\vaultclient\\builds\\assets\\S28E152.hgt", "D:\\git\\vaultclient\\builds\\assets\\S28E153.hgt" };
 
   for (int i = 0; i < 2; ++i)
   {
@@ -400,9 +395,9 @@ void vcQuadTree_BuildDemData(vector<vcDemTile*>* pDemTiles)
 
 }
 
-uint16_t vcQuadTree_LookupDemHeight(vcQuadTree* pQuadTree, udDouble2* worldPos)
+uint16_t vcQuadTree_LookupDemHeight(vcQuadTree* pQuadTree, const udDouble2 &worldPos)
 {
-  udDouble3 geoCoord = udGeoZone_CartesianToLatLong(pQuadTree->gisSpace.zone, udDouble3::create(*worldPos, 0.0));
+  udDouble3 geoCoord = udGeoZone_CartesianToLatLong(pQuadTree->gisSpace.zone, udDouble3::create(worldPos, 0.0));
   geoCoord[0] = abs(geoCoord[0] - 1);
   geoCoord[1] = abs(geoCoord[1]);
 
@@ -427,7 +422,8 @@ uint16_t vcQuadTree_LookupDemHeight(vcQuadTree* pQuadTree, udDouble2* worldPos)
   float demIndexLat = DemTileResolution * (geoCoord[0] - lat);
   float demIndexLon = DemTileResolution * (geoCoord[1] - lon);
 
-  return targetTile->demData[int(demIndexLat) * DemTileResolution + int(demIndexLon)];
+  int index = int(demIndexLat) * DemTileResolution + int(demIndexLon);
+  return targetTile->demData[index];
 }
 
 
