@@ -1,3 +1,9 @@
 [submodule "3rdParty/udcore"]
 	path = 3rdParty/udcore
 	url = ../../euclideon/udcore.git
+[submodule "3rdParty/DirectXShaderCompiler"]
+	path = 3rdParty/DirectXShaderCompiler
+	url = https://github.com/microsoft/DirectXShaderCompiler.git
+[submodule "3rdParty/SPIRV-Cross"]
+	path = 3rdParty/SPIRV-Cross
+	url = https://github.com/KhronosGroup/SPIRV-Cross.git

@@ -23,8 +23,9 @@ project "vaultClient"
 	includedirs { "3rdParty/Imgui" }
 	includedirs { "3rdParty/stb" }
 	includedirs { "3rdParty/easyexif" }
-
-	links { "udCore" .. (projectSuffix or "") }
+	includedirs { "3rdParty/ShaderConductor/Include" }
+	
+	links { "udCore" .. (projectSuffix or ""), "ShaderConductor" }
 
 	defines { "IMGUI_DISABLE_OBSOLETE_FUNCTIONS" }
 

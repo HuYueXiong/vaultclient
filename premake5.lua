@@ -276,6 +276,10 @@ solution "vaultClient"
 		dofile "3rdParty/udcore/project.lua"
 	end
 
+	dofile "3rdParty/DirectXShaderCompiler.lua"
+	dofile "3rdParty/SPIRV-Cross.lua"
+	dofile "3rdParty/ShaderConductor.lua"
+	
 	filter {}
 	removeflags { "FatalWarnings" }
 

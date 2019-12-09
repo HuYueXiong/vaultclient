@@ -5,7 +5,6 @@
 #include "vcSceneLayerHelper.h"
 #include "vcPolygonModel.h"
 
-
 #include "gl/vcTexture.h"
 #include "gl/vcGLState.h"
 
