@@ -10,11 +10,11 @@ project "SPIRV-Cross"
 	warnings "Off"
 
 	--Files to include
-	files { "SPIRV-Cross/*.h", "SPIRV-Cross/*.hpp", "SPIRV-Cross/*.cpp", "SPIRV-Cross/include/**", "SPIRV-Cross/external/spirv-tools/source/**", "SPIRV-Cross/external/spirv-tools/include/**" }
+	files { "SPIRV-Cross/*.h", "SPIRV-Cross/*.hpp", "SPIRV-Cross/*.cpp", "SPIRV-Cross/include/**" }
 	files { "SPIRV-Cross.lua" }
 
 	--This project includes
-	includedirs { "SPIRV-Cross", "SPIRV-Cross/include", "SPIRV-Cross/external/spirv-tools/include", "SPIRV-Cross/external/spirv-tools/source", "SPIRV-Cross/external/spirv-tools", "SPIRV-Cross/external/spirv-tools/external/spirv-headers/include" }
+	includedirs { "SPIRV-Cross", "SPIRV-Cross/include" }
 
 	symbols "On"
 	

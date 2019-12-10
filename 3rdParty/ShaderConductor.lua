@@ -14,9 +14,9 @@ project "ShaderConductor"
 	files { "ShaderConductor.lua" }
 
 	--This project includes
-	includedirs { "ShaderConductor/Include", "ShaderConductor/Source" }
+	includedirs { "ShaderConductor/Include", "ShaderConductor/Source/Core","ShaderConductor/Source/Tools","ShaderConductor/Source/Wrapper" }
     includedirs { "../3rdParty/DirectXShaderCompiler/include" }
-	includedirs { "../3rdParty/SPIRV-Cross", "../3rdParty/SPIRV-Cross/external/spirv-tools/include" }
+	includedirs { "../3rdParty/SPIRV-Cross" }
 	
 	links { "SPIRV-Cross" }
 	
