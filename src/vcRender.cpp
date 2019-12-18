@@ -18,6 +18,10 @@
 #include "stb_image.h"
 #include <vector>
 
+#include "atmosphere/model.h"
+
+atmosphere::Model *pModel = nullptr;
+
 enum
 {
   // directX framebuffer can only be certain increments
@@ -239,10 +243,705 @@ struct vcRenderContext
 udResult vcRender_RecreateUDView(vcState *pProgramState, vcRenderContext *pRenderContext);
 udResult vcRender_RenderUD(vcState *pProgramState, vcRenderContext *pRenderContext, vdkRenderView *pRenderView, vcCamera *pCamera, vcRenderData &renderData, bool doPick);
 
+constexpr double kPi = 3.1415926;
+constexpr double kSunAngularRadius = 0.00935 / 2.0;
+constexpr double kSunSolidAngle = kPi * kSunAngularRadius * kSunAngularRadius;
+constexpr double kLengthUnitInMeters = 1000.0;
+
+const char kVertexShader[] = R"(
+    #version 330
+    uniform mat4 model_from_view;
+    uniform mat4 view_from_clip;
+    layout(location = 0) in vec4 vertex;
+    out vec3 view_ray;
+    void main() {
+      view_ray =
+          (model_from_view * vec4((view_from_clip * vertex).xyz, 0.0)).xyz;
+      gl_Position = vertex;
+    })";
+
+//#include "atmosphere/demo/demo.glsl.inc"
+
+enum Luminance {
+  // Render the spectral radiance at kLambdaR, kLambdaG, kLambdaB.
+  NONE,
+  // Render the sRGB luminance, using an approximate (on the fly) conversion
+  // from 3 spectral radiance values only (see section 14.3 in <a href=
+  // "https://arxiv.org/pdf/1612.04336.pdf">A Qualitative and Quantitative
+  //  Evaluation of 8 Clear Sky Models</a>).
+  APPROXIMATE,
+  // Render the sRGB luminance, precomputed from 15 spectral radiance values
+  // (see section 4.4 in <a href=
+  // "http://www.oskee.wz.cz/stranka/uploads/SCCG10ElekKmoch.pdf">Real-time
+  //  Spectral Scattering in Large-scale Natural Participating Media</a>).
+  PRECOMPUTED
+};
+
+#include "gl/opengl/vcOpenGL.h"
+
+GLuint vertex_shader_;
+GLuint fragment_shader_;
+GLuint program_;
+
+bool use_constant_solar_spectrum_ = false;
+bool use_ozone_ = true;
+Luminance use_luminance_ = NONE;
+bool use_half_precision_ = true;
+bool use_combined_textures_ = true;
+bool do_white_balance_ = false;
+
+double view_distance_meters_ = 9000.0;
+double view_zenith_angle_radians_ = 1.47;
+double view_azimuth_angle_radians_ = -0.1;
+double sun_zenith_angle_radians_ = 1.3;
+double sun_azimuth_angle_radians_ = 2.9;
+double exposure_ = 10.0;
+
+udUInt2 sceneRes = udUInt2::zero();
+
+void InitModel()
+{
+
+  // Values from "Reference Solar Spectral Irradiance: ASTM G-173", ETR column
+  // (see http://rredc.nrel.gov/solar/spectra/am1.5/ASTMG173/ASTMG173.html),
+  // summed and averaged in each bin (e.g. the value for 360nm is the average
+  // of the ASTM G-173 values for all wavelengths between 360 and 370nm).
+  // Values in W.m^-2.
+  constexpr int kLambdaMin = 360;
+  constexpr int kLambdaMax = 830;
+  constexpr double kSolarIrradiance[48] = {
+    1.11776, 1.14259, 1.01249, 1.14716, 1.72765, 1.73054, 1.6887, 1.61253,
+    1.91198, 2.03474, 2.02042, 2.02212, 1.93377, 1.95809, 1.91686, 1.8298,
+    1.8685, 1.8931, 1.85149, 1.8504, 1.8341, 1.8345, 1.8147, 1.78158, 1.7533,
+    1.6965, 1.68194, 1.64654, 1.6048, 1.52143, 1.55622, 1.5113, 1.474, 1.4482,
+    1.41018, 1.36775, 1.34188, 1.31429, 1.28303, 1.26758, 1.2367, 1.2082,
+    1.18737, 1.14683, 1.12362, 1.1058, 1.07124, 1.04992
+  };
+  // Values from http://www.iup.uni-bremen.de/gruppen/molspec/databases/
+  // referencespectra/o3spectra2011/index.html for 233K, summed and averaged in
+  // each bin (e.g. the value for 360nm is the average of the original values
+  // for all wavelengths between 360 and 370nm). Values in m^2.
+  constexpr double kOzoneCrossSection[48] = {
+    1.18e-27, 2.182e-28, 2.818e-28, 6.636e-28, 1.527e-27, 2.763e-27, 5.52e-27,
+    8.451e-27, 1.582e-26, 2.316e-26, 3.669e-26, 4.924e-26, 7.752e-26, 9.016e-26,
+    1.48e-25, 1.602e-25, 2.139e-25, 2.755e-25, 3.091e-25, 3.5e-25, 4.266e-25,
+    4.672e-25, 4.398e-25, 4.701e-25, 5.019e-25, 4.305e-25, 3.74e-25, 3.215e-25,
+    2.662e-25, 2.238e-25, 1.852e-25, 1.473e-25, 1.209e-25, 9.423e-26, 7.455e-26,
+    6.566e-26, 5.105e-26, 4.15e-26, 4.228e-26, 3.237e-26, 2.451e-26, 2.801e-26,
+    2.534e-26, 1.624e-26, 1.465e-26, 2.078e-26, 1.383e-26, 7.105e-27
+  };
+  // From https://en.wikipedia.org/wiki/Dobson_unit, in molecules.m^-2.
+  constexpr double kDobsonUnit = 2.687e20;
+  // Maximum number density of ozone molecules, in m^-3 (computed so at to get
+  // 300 Dobson units of ozone - for this we divide 300 DU by the integral of
+  // the ozone density profile defined below, which is equal to 15km).
+  constexpr double kMaxOzoneNumberDensity = 300.0 * kDobsonUnit / 15000.0;
+  // Wavelength independent solar irradiance "spectrum" (not physically
+  // realistic, but was used in the original implementation).
+  constexpr double kConstantSolarIrradiance = 1.5;
+  constexpr double kBottomRadius = 6360000.0;
+  constexpr double kTopRadius = 6420000.0;
+  constexpr double kRayleigh = 1.24062e-6;
+  constexpr double kRayleighScaleHeight = 8000.0;
+  constexpr double kMieScaleHeight = 1200.0;
+  constexpr double kMieAngstromAlpha = 0.0;
+  constexpr double kMieAngstromBeta = 5.328e-3;
+  constexpr double kMieSingleScatteringAlbedo = 0.9;
+  constexpr double kMiePhaseFunctionG = 0.8;
+  constexpr double kGroundAlbedo = 0.1;
+  const double max_sun_zenith_angle =
+    (use_half_precision_ ? 102.0 : 120.0) / 180.0 * kPi;
+
+  atmosphere::DensityProfileLayer
+    rayleigh_layer(0.0, 1.0, -1.0 / kRayleighScaleHeight, 0.0, 0.0);
+  atmosphere::DensityProfileLayer mie_layer(0.0, 1.0, -1.0 / kMieScaleHeight, 0.0, 0.0);
+  // Density profile increasing linearly from 0 to 1 between 10 and 25km, and
+  // decreasing linearly from 1 to 0 between 25 and 40km. This is an approximate
+  // profile from http://www.kln.ac.lk/science/Chemistry/Teaching_Resources/
+  // Documents/Introduction%20to%20atmospheric%20chemistry.pdf (page 10).
+  std::vector<atmosphere::DensityProfileLayer> ozone_density;
+  ozone_density.push_back(
+    atmosphere::DensityProfileLayer(25000.0, 0.0, 0.0, 1.0 / 15000.0, -2.0 / 3.0));
+  ozone_density.push_back(
+    atmosphere::DensityProfileLayer(0.0, 0.0, 0.0, -1.0 / 15000.0, 8.0 / 3.0));
+
+  std::vector<double> wavelengths;
+  std::vector<double> solar_irradiance;
+  std::vector<double> rayleigh_scattering;
+  std::vector<double> mie_scattering;
+  std::vector<double> mie_extinction;
+  std::vector<double> absorption_extinction;
+  std::vector<double> ground_albedo;
+  for (int l = kLambdaMin; l <= kLambdaMax; l += 10) {
+    double lambda = static_cast<double>(l) * 1e-3;  // micro-meters
+    double mie =
+      kMieAngstromBeta / kMieScaleHeight * pow(lambda, -kMieAngstromAlpha);
+    wavelengths.push_back(l);
+    if (use_constant_solar_spectrum_) {
+      solar_irradiance.push_back(kConstantSolarIrradiance);
+    }
+    else {
+      solar_irradiance.push_back(kSolarIrradiance[(l - kLambdaMin) / 10]);
+    }
+    rayleigh_scattering.push_back(kRayleigh * pow(lambda, -4));
+    mie_scattering.push_back(mie * kMieSingleScatteringAlbedo);
+    mie_extinction.push_back(mie);
+    absorption_extinction.push_back(use_ozone_ ?
+      kMaxOzoneNumberDensity * kOzoneCrossSection[(l - kLambdaMin) / 10] :
+      0.0);
+    ground_albedo.push_back(kGroundAlbedo);
+  }
+
+  pModel = new atmosphere::Model(wavelengths, solar_irradiance, kSunAngularRadius,
+    kBottomRadius, kTopRadius, { rayleigh_layer }, rayleigh_scattering,
+    { mie_layer }, mie_scattering, mie_extinction, kMiePhaseFunctionG,
+    ozone_density, absorption_extinction, ground_albedo, max_sun_zenith_angle,
+    kLengthUnitInMeters, use_luminance_ == PRECOMPUTED ? 15 : 3,
+    use_combined_textures_, use_half_precision_);
+    pModel->Init();
+
+
+    vertex_shader_ = glCreateShader(GL_VERTEX_SHADER);
+    const char *const vertex_shader_source = kVertexShader;
+    glShaderSource(vertex_shader_, 1, &vertex_shader_source, NULL);
+    glCompileShader(vertex_shader_);
+
+    const std::string fragment_shader_str =
+      "#version 330\n" +
+      std::string(use_luminance_ != NONE ? "#define USE_LUMINANCE\n" : "") +
+      "const float kLengthUnitInMeters = " +
+      std::to_string(kLengthUnitInMeters) + ";\n" +
+      R"demo(
+/**
+ * Copyright (c) 2017 Eric Bruneton
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. Neither the name of the copyright holders nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+/*<h2>atmosphere/demo/demo.glsl</h2>
+<p>This GLSL fragment shader is used to render our demo scene, which consists of
+a sphere S on a purely spherical planet P. It is rendered by "ray tracing", i.e.
+the vertex shader outputs the view ray direction, and the fragment shader
+computes the intersection of this ray with the spheres S and P to produce the
+final pixels. The fragment shader also computes the intersection of the light
+rays with the sphere S, to compute shadows, as well as the intersections of the
+view ray with the shadow volume of S, in order to compute light shafts.
+<p>Our fragment shader has the following inputs and outputs:
+*/
+
+uniform vec3 camera;
+uniform float exposure;
+uniform vec3 white_point;
+uniform vec3 earth_center;
+uniform vec3 sun_direction;
+uniform vec2 sun_size;
+in vec3 view_ray;
+layout(location = 0) out vec4 color;
+
+/*
+<p>It uses the following constants, as well as the following atmosphere
+rendering functions, defined externally (by the <code>Model</code>'s
+<code>GetShader()</code> shader). The <code>USE_LUMINANCE</code> option is used
+to select either the functions returning radiance values, or those returning
+luminance values (see <a href="../model.h.html">model.h</a>).
+*/
+
+const float PI = 3.14159265;
+const vec3 kSphereCenter = vec3(0.0, 0.0, 1000.0) / kLengthUnitInMeters;
+const float kSphereRadius = 1000.0 / kLengthUnitInMeters;
+const vec3 kSphereAlbedo = vec3(0.8);
+const vec3 kGroundAlbedo = vec3(0.0, 0.0, 0.04);
+
+#ifdef USE_LUMINANCE
+#define GetSolarRadiance GetSolarLuminance
+#define GetSkyRadiance GetSkyLuminance
+#define GetSkyRadianceToPoint GetSkyLuminanceToPoint
+#define GetSunAndSkyIrradiance GetSunAndSkyIlluminance
+#endif
+
+vec3 GetSolarRadiance();
+vec3 GetSkyRadiance(vec3 camera, vec3 view_ray, float shadow_length,
+    vec3 sun_direction, out vec3 transmittance);
+vec3 GetSkyRadianceToPoint(vec3 camera, vec3 point, float shadow_length,
+    vec3 sun_direction, out vec3 transmittance);
+vec3 GetSunAndSkyIrradiance(
+    vec3 p, vec3 normal, vec3 sun_direction, out vec3 sky_irradiance);
+
+/*<h3>Shadows and light shafts</h3>
+<p>The functions to compute shadows and light shafts must be defined before we
+can use them in the main shader function, so we define them first. Testing if
+a point is in the shadow of the sphere S is equivalent to test if the
+corresponding light ray intersects the sphere, which is very simple to do.
+However, this is only valid for a punctual light source, which is not the case
+of the Sun. In the following function we compute an approximate (and biased)
+soft shadow by taking the angular size of the Sun into account:
+*/
+
+float GetSunVisibility(vec3 point, vec3 sun_direction) {
+  vec3 p = point - kSphereCenter;
+  float p_dot_v = dot(p, sun_direction);
+  float p_dot_p = dot(p, p);
+  float ray_sphere_center_squared_distance = p_dot_p - p_dot_v * p_dot_v;
+  float distance_to_intersection = -p_dot_v - sqrt(
+      kSphereRadius * kSphereRadius - ray_sphere_center_squared_distance);
+  if (distance_to_intersection > 0.0) {
+    // Compute the distance between the view ray and the sphere, and the
+    // corresponding (tangent of the) subtended angle. Finally, use this to
+    // compute an approximate sun visibility.
+    float ray_sphere_distance =
+        kSphereRadius - sqrt(ray_sphere_center_squared_distance);
+    float ray_sphere_angular_distance = -ray_sphere_distance / p_dot_v;
+    return smoothstep(1.0, 0.0, ray_sphere_angular_distance / sun_size.x);
+  }
+  return 1.0;
+}
+
+/*
+<p>The sphere also partially occludes the sky light, and we approximate this
+effect with an ambient occlusion factor. The ambient occlusion factor due to a
+sphere is given in <a href=
+"http://webserver.dmt.upm.es/~isidoro/tc3/Radiation%20View%20factors.pdf"
+>Radiation View Factors</a> (Isidoro Martinez, 1995). In the simple case where
+the sphere is fully visible, it is given by the following function:
+*/
+
+float GetSkyVisibility(vec3 point) {
+  vec3 p = point - kSphereCenter;
+  float p_dot_p = dot(p, p);
+  return
+      1.0 + p.z / sqrt(p_dot_p) * kSphereRadius * kSphereRadius / p_dot_p;
+}
+
+/*
+<p>To compute light shafts we need the intersections of the view ray with the
+shadow volume of the sphere S. Since the Sun is not a punctual light source this
+shadow volume is not a cylinder but a cone (for the umbra, plus another cone for
+the penumbra, but we ignore it here):
+<svg width="505px" height="200px">
+  <style type="text/css"><![CDATA[
+    circle { fill: #000000; stroke: none; }
+    path { fill: none; stroke: #000000; }
+    text { font-size: 16px; font-style: normal; font-family: Sans; }
+    .vector { font-weight: bold; }
+  ]]></style>
+  <path d="m 10,75 455,120"/>
+  <path d="m 10,125 455,-120"/>
+  <path d="m 120,50 160,130"/>
+  <path d="m 138,70 7,0 0,-7"/>
+  <path d="m 410,65 40,0 m -5,-5 5,5 -5,5"/>
+  <path d="m 20,100 430,0" style="stroke-dasharray:8,4,2,4;"/>
+  <path d="m 255,25 0,155" style="stroke-dasharray:2,2;"/>
+  <path d="m 280,160 -25,0" style="stroke-dasharray:2,2;"/>
+  <path d="m 255,140 60,0" style="stroke-dasharray:2,2;"/>
+  <path d="m 300,105 5,-5 5,5 m -5,-5 0,40 m -5,-5 5,5 5,-5"/>
+  <path d="m 265,105 5,-5 5,5 m -5,-5 0,60 m -5,-5 5,5 5,-5"/>
+  <path d="m 260,80 -5,5 5,5 m -5,-5 85,0 m -5,5 5,-5 -5,-5"/>
+  <path d="m 335,95 5,5 5,-5 m -5,5 0,-60 m -5,5 5,-5 5,5"/>
+  <path d="m 50,100 a 50,50 0 0 1 2,-14" style="stroke-dasharray:2,1;"/>
+  <circle cx="340" cy="100" r="60" style="fill: none; stroke: #000000;"/>
+  <circle cx="340" cy="100" r="2.5"/>
+  <circle cx="255" cy="160" r="2.5"/>
+  <circle cx="120" cy="50" r="2.5"/>
+  <text x="105" y="45" class="vector">p</text>
+  <text x="240" y="170" class="vector">q</text>
+  <text x="425" y="55" class="vector">s</text>
+  <text x="135" y="55" class="vector">v</text>
+  <text x="345" y="75">R</text>
+  <text x="275" y="135">r</text>
+  <text x="310" y="125">ρ</text>
+  <text x="215" y="120">d</text>
+  <text x="290" y="80">δ</text>
+  <text x="30" y="95">α</text>
+</svg>
+<p>Noting, as in the above figure, $\bp$ the camera position, $\bv$ and $\bs$
+the unit view ray and sun direction vectors and $R$ the sphere radius (supposed
+to be centered on the origin), the point at distance $d$ from the camera is
+$\bq=\bp+d\bv$. This point is at a distance $\delta=-\bq\cdot\bs$ from the
+sphere center along the umbra cone axis, and at a distance $r$ from this axis
+given by $r^2=\bq\cdot\bq-\delta^2$. Finally, at distance $\delta$ along the
+axis the umbra cone has radius $\rho=R-\delta\tan\alpha$, where $\alpha$ is
+the Sun's angular radius. The point at distance $d$ from the camera is on the
+shadow cone only if $r^2=\rho^2$, i.e. only if
+\begin{equation}
+(\bp+d\bv)\cdot(\bp+d\bv)-((\bp+d\bv)\cdot\bs)^2=
+(R+((\bp+d\bv)\cdot\bs)\tan\alpha)^2
+\end{equation}
+Developping this gives a quadratic equation for $d$:
+\begin{equation}
+ad^2+2bd+c=0
+\end{equation}
+where
+<ul>
+<li>$a=1-l(\bv\cdot\bs)^2$,</li>
+<li>$b=\bp\cdot\bv-l(\bp\cdot\bs)(\bv\cdot\bs)-\tan(\alpha)R(\bv\cdot\bs)$,</li>
+<li>$c=\bp\cdot\bp-l(\bp\cdot\bs)^2-2\tan(\alpha)R(\bp\cdot\bs)-R^2$,</li>
+<li>$l=1+\tan^2\alpha$</li>
+</ul>
+From this we deduce the two possible solutions for $d$, which must be clamped to
+the actual shadow part of the mathematical cone (i.e. the slab between the
+sphere center and the cone apex or, in other words, the points for which
+$\delta$ is between $0$ and $R/\tan\alpha$). The following function implements
+these equations:
+*/
+
+void GetSphereShadowInOut(vec3 view_direction, vec3 sun_direction,
+    out float d_in, out float d_out) {
+  vec3 pos = camera - kSphereCenter;
+  float pos_dot_sun = dot(pos, sun_direction);
+  float view_dot_sun = dot(view_direction, sun_direction);
+  float k = sun_size.x;
+  float l = 1.0 + k * k;
+  float a = 1.0 - l * view_dot_sun * view_dot_sun;
+  float b = dot(pos, view_direction) - l * pos_dot_sun * view_dot_sun -
+      k * kSphereRadius * view_dot_sun;
+  float c = dot(pos, pos) - l * pos_dot_sun * pos_dot_sun -
+      2.0 * k * kSphereRadius * pos_dot_sun - kSphereRadius * kSphereRadius;
+  float discriminant = b * b - a * c;
+  if (discriminant > 0.0) {
+    d_in = max(0.0, (-b - sqrt(discriminant)) / a);
+    d_out = (-b + sqrt(discriminant)) / a;
+    // The values of d for which delta is equal to 0 and kSphereRadius / k.
+    float d_base = -pos_dot_sun / view_dot_sun;
+    float d_apex = -(pos_dot_sun + kSphereRadius / k) / view_dot_sun;
+    if (view_dot_sun > 0.0) {
+      d_in = max(d_in, d_apex);
+      d_out = a > 0.0 ? min(d_out, d_base) : d_base;
+    } else {
+      d_in = a > 0.0 ? max(d_in, d_base) : d_base;
+      d_out = min(d_out, d_apex);
+    }
+  } else {
+    d_in = 0.0;
+    d_out = 0.0;
+  }
+}
+
+/*<h3>Main shading function</h3>
+<p>Using these functions we can now implement the main shader function, which
+computes the radiance from the scene for a given view ray. This function first
+tests if the view ray intersects the sphere S. If so it computes the sun and
+sky light received by the sphere at the intersection point, combines this with
+the sphere BRDF and the aerial perspective between the camera and the sphere.
+It then does the same with the ground, i.e. with the planet sphere P, and then
+computes the sky radiance and transmittance. Finally, all these terms are
+composited together (an opacity is also computed for each object, using an
+approximate view cone - sphere intersection factor) to get the final radiance.
+<p>We start with the computation of the intersections of the view ray with the
+shadow volume of the sphere, because they are needed to get the aerial
+perspective for the sphere and the planet:
+*/
+
+void main() {
+  // Normalized view direction vector.
+  vec3 view_direction = normalize(view_ray);
+  // Tangent of the angle subtended by this fragment.
+  float fragment_angular_size =
+      length(dFdx(view_ray) + dFdy(view_ray)) / length(view_ray);
+
+  float shadow_in;
+  float shadow_out;
+  GetSphereShadowInOut(view_direction, sun_direction, shadow_in, shadow_out);
+
+  // Hack to fade out light shafts when the Sun is very close to the horizon.
+  float lightshaft_fadein_hack = smoothstep(
+      0.02, 0.04, dot(normalize(camera - earth_center), sun_direction));
+
+)demo" +
+R"demo(
+/*
+<p>We then test whether the view ray intersects the sphere S or not. If it does,
+we compute an approximate (and biased) opacity value, using the same
+approximation as in <code>GetSunVisibility</code>:
+*/
+
+  // Compute the distance between the view ray line and the sphere center,
+  // and the distance between the camera and the intersection of the view
+  // ray with the sphere (or NaN if there is no intersection).
+  vec3 p = camera - kSphereCenter;
+  float p_dot_v = dot(p, view_direction);
+  float p_dot_p = dot(p, p);
+  float ray_sphere_center_squared_distance = p_dot_p - p_dot_v * p_dot_v;
+  float distance_to_intersection = -p_dot_v - sqrt(
+      kSphereRadius * kSphereRadius - ray_sphere_center_squared_distance);
+
+  // Compute the radiance reflected by the sphere, if the ray intersects it.
+  float sphere_alpha = 0.0;
+  vec3 sphere_radiance = vec3(0.0);
+  if (distance_to_intersection > 0.0) {
+    // Compute the distance between the view ray and the sphere, and the
+    // corresponding (tangent of the) subtended angle. Finally, use this to
+    // compute the approximate analytic antialiasing factor sphere_alpha.
+    float ray_sphere_distance =
+        kSphereRadius - sqrt(ray_sphere_center_squared_distance);
+    float ray_sphere_angular_distance = -ray_sphere_distance / p_dot_v;
+    sphere_alpha =
+        min(ray_sphere_angular_distance / fragment_angular_size, 1.0);
+
+/*
+<p>We can then compute the intersection point and its normal, and use them to
+get the sun and sky irradiance received at this point. The reflected radiance
+follows, by multiplying the irradiance with the sphere BRDF:
+*/
+    vec3 point = camera + view_direction * distance_to_intersection;
+    vec3 normal = normalize(point - kSphereCenter);
+
+    // Compute the radiance reflected by the sphere.
+    vec3 sky_irradiance;
+    vec3 sun_irradiance = GetSunAndSkyIrradiance(
+        point - earth_center, normal, sun_direction, sky_irradiance);
+    sphere_radiance =
+        kSphereAlbedo * (1.0 / PI) * (sun_irradiance + sky_irradiance);
+
+/*
+<p>Finally, we take into account the aerial perspective between the camera and
+the sphere, which depends on the length of this segment which is in shadow:
+*/
+    float shadow_length =
+        max(0.0, min(shadow_out, distance_to_intersection) - shadow_in) *
+        lightshaft_fadein_hack;
+    vec3 transmittance;
+    vec3 in_scatter = GetSkyRadianceToPoint(camera - earth_center,
+        point - earth_center, shadow_length, sun_direction, transmittance);
+    sphere_radiance = sphere_radiance * transmittance + in_scatter;
+  }
+
+/*
+<p>In the following we repeat the same steps as above, but for the planet sphere
+P instead of the sphere S (a smooth opacity is not really needed here, so we
+don't compute it. Note also how we modulate the sun and sky irradiance received
+on the ground by the sun and sky visibility factors):
+*/
+
+  // Compute the distance between the view ray line and the Earth center,
+  // and the distance between the camera and the intersection of the view
+  // ray with the ground (or NaN if there is no intersection).
+  p = camera - earth_center;
+  p_dot_v = dot(p, view_direction);
+  p_dot_p = dot(p, p);
+  float ray_earth_center_squared_distance = p_dot_p - p_dot_v * p_dot_v;
+  distance_to_intersection = -p_dot_v - sqrt(
+      earth_center.z * earth_center.z - ray_earth_center_squared_distance);
+
+  // Compute the radiance reflected by the ground, if the ray intersects it.
+  float ground_alpha = 0.0;
+  vec3 ground_radiance = vec3(0.0);
+  if (distance_to_intersection > 0.0) {
+    vec3 point = camera + view_direction * distance_to_intersection;
+    vec3 normal = normalize(point - earth_center);
+
+    // Compute the radiance reflected by the ground.
+    vec3 sky_irradiance;
+    vec3 sun_irradiance = GetSunAndSkyIrradiance(
+        point - earth_center, normal, sun_direction, sky_irradiance);
+    ground_radiance = kGroundAlbedo * (1.0 / PI) * (
+        sun_irradiance * GetSunVisibility(point, sun_direction) +
+        sky_irradiance * GetSkyVisibility(point));
+
+    float shadow_length =
+        max(0.0, min(shadow_out, distance_to_intersection) - shadow_in) *
+        lightshaft_fadein_hack;
+    vec3 transmittance;
+    vec3 in_scatter = GetSkyRadianceToPoint(camera - earth_center,
+        point - earth_center, shadow_length, sun_direction, transmittance);
+    ground_radiance = ground_radiance * transmittance + in_scatter;
+    ground_alpha = 1.0;
+  }
+
+/*
+<p>Finally, we compute the radiance and transmittance of the sky, and composite
+together, from back to front, the radiance and opacities of all the objects of
+the scene:
+*/
+
+  // Compute the radiance of the sky.
+  float shadow_length = max(0.0, shadow_out - shadow_in) *
+      lightshaft_fadein_hack;
+  vec3 transmittance;
+  vec3 radiance = GetSkyRadiance(
+      camera - earth_center, view_direction, shadow_length, sun_direction,
+      transmittance);
+
+  // If the view ray intersects the Sun, add the Sun radiance.
+  if (dot(view_direction, sun_direction) > sun_size.y) {
+    radiance = radiance + transmittance * GetSolarRadiance();
+  }
+  radiance = mix(radiance, ground_radiance, ground_alpha);
+  radiance = mix(radiance, sphere_radiance, sphere_alpha);
+  color.rgb = 
+      pow(vec3(1.0) - exp(-radiance / white_point * exposure), vec3(1.0 / 2.2));
+  color.a = 1.0;
+}
+)demo";
+
+    const char *fragment_shader_source = fragment_shader_str.c_str();
+    fragment_shader_ = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragment_shader_, 1, &fragment_shader_source, NULL);
+    glCompileShader(fragment_shader_);
+
+    if (program_ != 0) {
+      glDeleteProgram(program_);
+    }
+    program_ = glCreateProgram();
+    glAttachShader(program_, vertex_shader_);
+    glAttachShader(program_, fragment_shader_);
+    glAttachShader(program_, pModel->shader());
+    glLinkProgram(program_);
+    glDetachShader(program_, vertex_shader_);
+    glDetachShader(program_, fragment_shader_);
+    glDetachShader(program_, pModel->shader());
+
+    /*
+    <p>Finally, it sets the uniforms of this program that can be set once and for
+    all (in our case this includes the <code>Model</code>'s texture uniforms,
+    because our demo app does not have any texture of its own):
+    */
+
+    glUseProgram(program_);
+    pModel->SetProgramUniforms(program_, 0, 1, 2, 3);
+    double white_point_r = 1.0;
+    double white_point_g = 1.0;
+    double white_point_b = 1.0;
+    if (do_white_balance_) {
+      atmosphere::Model::ConvertSpectrumToLinearSrgb(wavelengths, solar_irradiance,
+        &white_point_r, &white_point_g, &white_point_b);
+      double white_point = (white_point_r + white_point_g + white_point_b) / 3.0;
+      white_point_r /= white_point;
+      white_point_g /= white_point;
+      white_point_b /= white_point;
+    }
+    glUniform3f(glGetUniformLocation(program_, "white_point"),
+      white_point_r, white_point_g, white_point_b);
+    glUniform3f(glGetUniformLocation(program_, "earth_center"),
+      0.0, 0.0, -kBottomRadius / kLengthUnitInMeters);
+    glUniform2f(glGetUniformLocation(program_, "sun_size"),
+      tan(kSunAngularRadius),
+      cos(kSunAngularRadius));
+}
+
+udFloat3 camOffset = udFloat3::zero();
+
+void DrawAtmosphere()
+{
+  glUseProgram(program_);
+
+  const float kFovY = 50.0 / 180.0 * kPi;
+  const float kTanFovY = tan(kFovY / 2.0);
+  float aspect_ratio = static_cast<float>(sceneRes.x) / sceneRes.y;
+
+  // Transform matrix from clip space to camera space (i.e. the inverse of a
+  // GL_PROJECTION matrix).
+  float view_from_clip[16] = {
+    kTanFovY * aspect_ratio, 0.0, 0.0, 0.0,
+    0.0, kTanFovY, 0.0, 0.0,
+    0.0, 0.0, 0.0, -1.0,
+    0.0, 0.0, 1.0, 1.0
+  };
+  glUniformMatrix4fv(glGetUniformLocation(program_, "view_from_clip"), 1, true,
+    view_from_clip);
+
+
+  // Unit vectors of the camera frame, expressed in world space.
+  float cos_z = cos(view_zenith_angle_radians_);
+  float sin_z = sin(view_zenith_angle_radians_);
+  float cos_a = cos(view_azimuth_angle_radians_);
+  float sin_a = sin(view_azimuth_angle_radians_);
+  float ux[3] = { -sin_a, cos_a, 0.0 };
+  float uy[3] = { -cos_z * cos_a, -cos_z * sin_a, sin_z };
+  float uz[3] = { sin_z * cos_a, sin_z * sin_a, cos_z };
+  float l = view_distance_meters_ / kLengthUnitInMeters;
+
+  // Transform matrix from camera frame to world space (i.e. the inverse of a
+  // GL_MODELVIEW matrix).
+  float model_from_view[16] = {
+    ux[0], uy[0], uz[0], uz[0] * l,
+    ux[1], uy[1], uz[1], uz[1] * l,
+    ux[2], uy[2], uz[2], uz[2] * l,
+    0.0, 0.0, 0.0, 1.0
+  };
+  VERIFY_GL();
+  GLuint camLoc = glGetUniformLocation(program_, "camera");
+  GLuint exposureLoc = glGetUniformLocation(program_, "exposure");
+  VERIFY_GL();
+  glUniform3f(camLoc,
+    model_from_view[3] + camOffset.x,
+    model_from_view[7] + camOffset.y,
+    model_from_view[11] + camOffset.z);
+  VERIFY_GL();
+  glUniform1f(exposureLoc,
+    use_luminance_ != NONE ? exposure_ * 1e-5 : exposure_);
+  VERIFY_GL();
+  glUniformMatrix4fv(glGetUniformLocation(program_, "model_from_view"),
+    1, true, model_from_view);
+  VERIFY_GL();
+  glUniform3f(glGetUniformLocation(program_, "sun_direction"),
+    cos(sun_azimuth_angle_radians_) * sin(sun_zenith_angle_radians_),
+    sin(sun_azimuth_angle_radians_) * sin(sun_zenith_angle_radians_),
+    cos(sun_zenith_angle_radians_));
+  VERIFY_GL();
+  //glBindVertexArray(full_screen_quad_vao_);
+  //glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+  vcMesh_Render(gInternalMeshes[vcInternalMeshType_ScreenQuad]);
+  glBindVertexArray(0);
+}
+
+int previous_mouse_x_ = 0;
+int previous_mouse_y_ = 0;
+
+void HandleFakeInput()
+{
+  int mouse_x = ImGui::GetIO().MousePos.x;
+  int mouse_y = ImGui::GetIO().MousePos.y;
+
+  if (ImGui::GetIO().MouseDown[0])
+  {
+    constexpr double kScale = 500.0;
+    if (ImGui::GetIO().KeyCtrl) {
+      sun_zenith_angle_radians_ -= (previous_mouse_y_ - mouse_y) / kScale;
+      sun_zenith_angle_radians_ =
+        udMax(0.0, udMin(kPi, sun_zenith_angle_radians_));
+      sun_azimuth_angle_radians_ += (previous_mouse_x_ - mouse_x) / kScale;
+    }
+    else {
+      view_zenith_angle_radians_ += (previous_mouse_y_ - mouse_y) / kScale;
+      view_zenith_angle_radians_ =
+        udMax(0.0, udMin(kPi / 2.0, view_zenith_angle_radians_));
+      view_azimuth_angle_radians_ += (previous_mouse_x_ - mouse_x) / kScale;
+    }
+  }
+  previous_mouse_x_ = mouse_x;
+  previous_mouse_y_ = mouse_y;
+}
+
 udResult vcRender_Init(vcState *pProgramState, vcRenderContext **ppRenderContext, udWorkerPool *pWorkerPool, const udUInt2 &sceneResolution)
 {
+  sceneRes = sceneResolution;
   udResult result;
   vcRenderContext *pRenderContext = nullptr;
+
+  InitModel();
 
   UD_ERROR_NULL(ppRenderContext, udR_InvalidParameter_);
 
@@ -428,6 +1127,8 @@ epilogue:
 
 udResult vcRender_ResizeScene(vcState *pProgramState, vcRenderContext *pRenderContext, const uint32_t width, const uint32_t height)
 {
+  sceneRes.x = width;
+  sceneRes.y = height;
   udResult result = udR_Success;
 
   uint32_t widthIncr = width + (width % vcRender_SceneSizeIncrement != 0 ? vcRender_SceneSizeIncrement - width % vcRender_SceneSizeIncrement : 0);
@@ -479,7 +1180,7 @@ udResult vcRender_ResizeScene(vcState *pProgramState, vcRenderContext *pRenderCo
 
   for (int i = 0; i < vcRender_RenderBufferCount; ++i)
   {
-    UD_ERROR_CHECK(vcTexture_Create(&pRenderContext->pTexture[i], widthIncr, heightIncr, nullptr, vcTextureFormat_RGBA8, vcTFM_Linear, false, vcTWM_Clamp, vcTCF_RenderTarget));
+    UD_ERROR_CHECK(vcTexture_Create(&pRenderContext->pTexture[i], widthIncr, heightIncr, nullptr, vcTextureFormat_RGBA16F, vcTFM_Linear, false, vcTWM_Clamp, vcTCF_RenderTarget));
     UD_ERROR_CHECK(vcTexture_Create(&pRenderContext->pDepthTexture[i], widthIncr, heightIncr, nullptr, vcTextureFormat_D24S8, vcTFM_Linear, false, vcTWM_Clamp, vcTCF_RenderTarget | vcTCF_AsynchronousRead));
     UD_ERROR_IF(!vcFramebuffer_Create(&pRenderContext->pFramebuffer[i], pRenderContext->pTexture[i], pRenderContext->pDepthTexture[i]), udR_InternalError);
   }
@@ -1123,6 +1824,22 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
   udUnused(pDefaultFramebuffer);
 
   float aspect = pRenderContext->sceneResolution.x / (float)pRenderContext->sceneResolution.y;
+
+  camOffset = udFloat3::create(pProgramState->camera.position);
+  //view_zenith_angle_radians_ = pProgramState->camera.eulerRotation.x;
+  //view_azimuth_angle_radians_ = pProgramState->camera.eulerRotation.y;
+  //view_zenith_angle_radians_ += (previous_mouse_y_ - mouse_y) / kScale;
+  //view_zenith_angle_radians_ =
+  //  udMax(0.0, udMin(kPi / 2.0, view_zenith_angle_radians_));
+  //view_azimuth_angle_radians_ += (previous_mouse_x_ - mouse_x) / kScale;
+
+  vcGLState_SetViewport(0, 0, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
+  vcFramebuffer_Bind(pRenderContext->pFramebuffer[0], vcFramebufferClearOperation_All, 0xffff00ff);
+
+  HandleFakeInput();
+  DrawAtmosphere();
+  return;
+
 
   // Render and upload UD buffers
   {
