@@ -843,7 +843,7 @@ the scene:
 
 udFloat3 camOffset = udFloat3::zero();
 
-void DrawAtmosphere()
+void DrawAtmosphere(vcState *pProgramState)
 {
   glUseProgram(program_);
 
@@ -851,16 +851,22 @@ void DrawAtmosphere()
   const float kTanFovY = tan(kFovY / 2.0);
   float aspect_ratio = static_cast<float>(sceneRes.x) / sceneRes.y;
 
-  // Transform matrix from clip space to camera space (i.e. the inverse of a
-  // GL_PROJECTION matrix).
-  float view_from_clip[16] = {
-    kTanFovY * aspect_ratio, 0.0, 0.0, 0.0,
-    0.0, kTanFovY, 0.0, 0.0,
-    0.0, 0.0, 0.0, -1.0,
-    0.0, 0.0, 1.0, 1.0
-  };
-  glUniformMatrix4fv(glGetUniformLocation(program_, "view_from_clip"), 1, true,
-    view_from_clip);
+  //// Transform matrix from clip space to camera space (i.e. the inverse of a
+  //// GL_PROJECTION matrix).
+  //float view_from_clip[16] = {
+  //  kTanFovY * aspect_ratio, 0.0, 0.0, 0.0,
+  //  0.0, kTanFovY, 0.0, 0.0,
+  //  0.0, 0.0, 0.0, -1.0,
+  //  0.0, 0.0, 1.0, 1.0
+  //};
+  //glUniformMatrix4fv(glGetUniformLocation(program_, "view_from_clip"), 1, true,
+  //  view_from_clip);
+
+  udFloat4x4 inverseProjection = udFloat4x4::create(udInverse(pProgramState->camera.matrices.projection));
+  udFloat4x4 inverseView = udFloat4x4::create(udInverse(pProgramState->camera.matrices.view));
+  //udFloat4x4 inverseViewProjection = udFloat4x4::create(pProgramState->camera.matrices.inverseViewProjection);
+  glUniformMatrix4fv(glGetUniformLocation(program_, "view_from_clip"), 1, false, inverseProjection.a);
+  //glUniformMatrix4fv(glGetUniformLocation(program_, "u_inverseViewProjection"), 1, false, inverseViewProjection.a);
 
 
   // Unit vectors of the camera frame, expressed in world space.
@@ -886,15 +892,15 @@ void DrawAtmosphere()
   GLuint exposureLoc = glGetUniformLocation(program_, "exposure");
   VERIFY_GL();
   glUniform3f(camLoc,
-    model_from_view[3] + camOffset.x,
-    model_from_view[7] + camOffset.y,
-    model_from_view[11] + camOffset.z);
+    pProgramState->camera.position.x,
+    pProgramState->camera.position.y,
+    pProgramState->camera.position.z);
   VERIFY_GL();
   glUniform1f(exposureLoc,
     use_luminance_ != NONE ? exposure_ * 1e-5 : exposure_);
   VERIFY_GL();
   glUniformMatrix4fv(glGetUniformLocation(program_, "model_from_view"),
-    1, true, model_from_view);
+    1, false, inverseView.a);
   VERIFY_GL();
   glUniform3f(glGetUniformLocation(program_, "sun_direction"),
     cos(sun_azimuth_angle_radians_) * sin(sun_zenith_angle_radians_),
@@ -1837,7 +1843,7 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
   vcFramebuffer_Bind(pRenderContext->pFramebuffer[0], vcFramebufferClearOperation_All, 0xffff00ff);
 
   HandleFakeInput();
-  DrawAtmosphere();
+  DrawAtmosphere(pProgramState);
   return;
 
 
