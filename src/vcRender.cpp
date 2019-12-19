@@ -507,23 +507,24 @@ of the Sun. In the following function we compute an approximate (and biased)
 soft shadow by taking the angular size of the Sun into account:
 */
 
-float GetSunVisibility(vec3 point, vec3 sun_direction) {
-  vec3 p = point - kSphereCenter;
-  float p_dot_v = dot(p, sun_direction);
-  float p_dot_p = dot(p, p);
-  float ray_sphere_center_squared_distance = p_dot_p - p_dot_v * p_dot_v;
-  float distance_to_intersection = -p_dot_v - sqrt(
-      kSphereRadius * kSphereRadius - ray_sphere_center_squared_distance);
-  if (distance_to_intersection > 0.0) {
-    // Compute the distance between the view ray and the sphere, and the
-    // corresponding (tangent of the) subtended angle. Finally, use this to
-    // compute an approximate sun visibility.
-    float ray_sphere_distance =
-        kSphereRadius - sqrt(ray_sphere_center_squared_distance);
-    float ray_sphere_angular_distance = -ray_sphere_distance / p_dot_v;
-    return smoothstep(1.0, 0.0, ray_sphere_angular_distance / sun_size.x);
-  }
-  return 1.0;
+float GetSunVisibility(vec3 point, vec3 sun_direction, float sceneDepth) {
+  return float(sceneDepth == 1.0);
+  //vec3 p = point - kSphereCenter;
+  //float p_dot_v = dot(p, sun_direction);
+  //float p_dot_p = dot(p, p);
+  //float ray_sphere_center_squared_distance = p_dot_p - p_dot_v * p_dot_v;
+  //float distance_to_intersection = -p_dot_v - sqrt(
+  //    kSphereRadius * kSphereRadius - ray_sphere_center_squared_distance);
+  //if (distance_to_intersection > 0.0) {
+  //  // Compute the distance between the view ray and the sphere, and the
+  //  // corresponding (tangent of the) subtended angle. Finally, use this to
+  //  // compute an approximate sun visibility.
+  //  float ray_sphere_distance =
+  //      kSphereRadius - sqrt(ray_sphere_center_squared_distance);
+  //  float ray_sphere_angular_distance = -ray_sphere_distance / p_dot_v;
+  //  return smoothstep(1.0, 0.0, ray_sphere_angular_distance / sun_size.x);
+  //}
+  //return 1.0;
 }
 
 /*
@@ -535,12 +536,13 @@ sphere is given in <a href=
 the sphere is fully visible, it is given by the following function:
 */
 
-float GetSkyVisibility(vec3 point) {
-  vec3 p = point - kSphereCenter;
-  float p_dot_p = dot(p, p);
-  return
-      1.0 + p.z / sqrt(p_dot_p) * kSphereRadius * kSphereRadius / p_dot_p;
-}
+float GetSkyVisibility(vec3 point, float sceneDepth) {
+  return float(sceneDepth == 1.0);
+  //vec3 p = point - kSphereCenter;
+  //float p_dot_p = dot(p, p);
+  //return
+  //    1.0 + p.z / sqrt(p_dot_p) * kSphereRadius * kSphereRadius / p_dot_p;
+} 
 
 /*
 <p>To compute light shafts we need the intersections of the view ray with the
@@ -700,6 +702,7 @@ approximation as in <code>GetSunVisibility</code>:
   float distance_to_intersection = -p_dot_v - sqrt(
       kSphereRadius * kSphereRadius - ray_sphere_center_squared_distance);
 
+  distance_to_intersection = sqrt(-1.0);
   vec4 pp = u_inverseViewProjection * vec4(v_uv * 2.0 - vec2(1.0), sceneDepth * 2.0 - 1.0, 1.0);
   pp /= pp.w;
   if (sceneDepth < 1.0)
@@ -712,9 +715,9 @@ approximation as in <code>GetSunVisibility</code>:
     // Compute the distance between the view ray and the sphere, and the
     // corresponding (tangent of the) subtended angle. Finally, use this to
     // compute the approximate analytic antialiasing factor sphere_alpha.
-    float ray_sphere_distance =
-        kSphereRadius - sqrt(ray_sphere_center_squared_distance);
-    float ray_sphere_angular_distance = -ray_sphere_distance / p_dot_v;
+    //float ray_sphere_distance =
+    //    kSphereRadius - sqrt(ray_sphere_center_squared_distance);
+    //float ray_sphere_angular_distance = -ray_sphere_distance / p_dot_v;
     sphere_alpha = 1.0;
       //  min(ray_sphere_angular_distance / fragment_angular_size, 1.0);
 
@@ -775,8 +778,8 @@ on the ground by the sun and sky visibility factors):
     vec3 sun_irradiance = GetSunAndSkyIrradiance(
         point - earth_center, normal, sun_direction, sky_irradiance);
     ground_radiance = kGroundAlbedo * (1.0 / PI) * (
-        sun_irradiance * GetSunVisibility(point, sun_direction) +
-        sky_irradiance * GetSkyVisibility(point));
+        sun_irradiance * GetSunVisibility(point, sun_direction, sceneDepth) +
+        sky_irradiance * GetSkyVisibility(point, sceneDepth));
 
     float shadow_length =
         max(0.0, min(shadow_out, distance_to_intersection) - shadow_in) *
