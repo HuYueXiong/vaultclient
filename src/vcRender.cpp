@@ -670,7 +670,9 @@ void main() {
 
   float sceneDepth = texture(u_depth, v_uv).x;
   vec4 sceneColour = texture(u_colour, v_uv);
-sceneColour.xyz = pow(sceneColour.xyz, vec3(2.2));
+  sceneColour.xyz = pow(sceneColour.xyz, vec3(2.2));
+
+  gl_FragDepth = sceneDepth;
 
   float shadow_in;
   float shadow_out;
@@ -856,8 +858,6 @@ the scene:
       tan(kSunAngularRadius),
       cos(kSunAngularRadius));
 }
-
-udFloat3 camOffset = udFloat3::zero();
 
 void DrawAtmosphere(vcState *pProgramState, vcTexture *pSceneColour, vcTexture *pSceneDepth)
 {
@@ -1733,7 +1733,7 @@ void vcRender_BeginFrame(vcState *pProgramState, vcRenderContext *pRenderContext
 
   // Would be nice to use 'pRenderContext->activeRenderTarget' here, but this causes
   // a single frame 'flicker' if options are changed at run time.
-  renderData.pSceneTexture = pRenderContext->pTexture[1];//pProgramState->settings.presentation.antiAliasingOn ? 0 : 1];
+  renderData.pSceneTexture = pRenderContext->pTexture[0];//pProgramState->settings.presentation.antiAliasingOn ? 0 : 1];
   renderData.sceneScaling = udFloat2::one();
 
   pRenderContext->activeRenderTarget = 0;
@@ -1874,30 +1874,21 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
   vcGLState_SetViewport(0, 0, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
   
   vcRender_OpaquePass(pProgramState, pRenderContext, renderData); // first pass
-  ////vcRender_VisualizationPass(pProgramState, pRenderContext);
-  //
-  //
-  //camOffset = udFloat3::create(pProgramState->camera.position);
-  //view_zenith_angle_radians_ = pProgramState->camera.eulerRotation.x;
-  //view_azimuth_angle_radians_ = pProgramState->camera.eulerRotation.y;
-  //view_zenith_angle_radians_ += (previous_mouse_y_ - mouse_y) / kScale;
-  //view_zenith_angle_radians_ =
-  //  udMax(0.0, udMin(kPi / 2.0, view_zenith_angle_radians_));
-  //view_azimuth_angle_radians_ += (previous_mouse_x_ - mouse_x) / kScale;
+  vcRender_VisualizationPass(pProgramState, pRenderContext);
 
   vcGLState_SetViewport(0, 0, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
 
-  //pRenderContext->activeRenderTarget = 1 - pRenderContext->activeRenderTarget;
-  vcFramebuffer_Bind(pRenderContext->pFramebuffer[1 - pRenderContext->activeRenderTarget], vcFramebufferClearOperation_All, 0x000000ff);
+  pRenderContext->activeRenderTarget = 1 - pRenderContext->activeRenderTarget;
+  vcFramebuffer_Bind(pRenderContext->pFramebuffer[pRenderContext->activeRenderTarget], vcFramebufferClearOperation_All, 0x000000ff);
 
   HandleFakeInput();
-  DrawAtmosphere(pProgramState, pRenderContext->pTexture[pRenderContext->activeRenderTarget], pRenderContext->pDepthTexture[pRenderContext->activeRenderTarget]);
-  return;
-  vcFramebuffer_Bind(pRenderContext->pFramebuffer[pRenderContext->activeRenderTarget]);
+  DrawAtmosphere(pProgramState, pRenderContext->pTexture[1 - pRenderContext->activeRenderTarget], pRenderContext->pDepthTexture[1 - pRenderContext->activeRenderTarget]);
+
+  //vcFramebuffer_Bind(pRenderContext->pFramebuffer[pRenderContext->activeRenderTarget]);
 
   vcRender_RenderAndApplyViewSheds(pProgramState, pRenderContext, renderData);
 
-  vcRenderSkybox(pProgramState, pRenderContext); // Drawing skybox after opaque geometry saves a bit on fill rate.
+ // vcRenderSkybox(pProgramState, pRenderContext); // Drawing skybox after opaque geometry saves a bit on fill rate.
   vcRenderTerrain(pProgramState, pRenderContext);
   vcRender_TransparentPass(pProgramState, pRenderContext, renderData);
 
