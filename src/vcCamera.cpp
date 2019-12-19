@@ -394,7 +394,7 @@ void vcCamera_HandleSceneInput(vcState *pProgramState, udDouble3 oscMove, udFloa
   }
 
   // Accept mouse input
-  if (isMouseBtnBeingHeld)
+  if (isMouseBtnBeingHeld && !io.KeyCtrl)
   {
     mouseInput.x = (pProgramState->settings.camera.invertMouseX ? mouseDelta.x : -mouseDelta.x) / 100.0;
     mouseInput.y = (pProgramState->settings.camera.invertMouseY ? mouseDelta.y : -mouseDelta.y) / 100.0;

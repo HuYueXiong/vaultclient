@@ -246,7 +246,7 @@ udResult vcRender_RenderUD(vcState *pProgramState, vcRenderContext *pRenderConte
 constexpr double kPi = 3.1415926;
 constexpr double kSunAngularRadius = 0.00935 / 2.0;
 constexpr double kSunSolidAngle = kPi * kSunAngularRadius * kSunAngularRadius;
-constexpr double kLengthUnitInMeters = 1000.0;
+constexpr double kLengthUnitInMeters = 1.0;
 
 const char kVertexShader[] = R"(
     #version 330
@@ -478,7 +478,7 @@ luminance values (see <a href="../model.h.html">model.h</a>).
 
 const float PI = 3.14159265;
 const vec3 kSphereCenter = vec3(0.0, 0.0, 0.0) / kLengthUnitInMeters;
-const float kSphereRadius = 1000.0 / kLengthUnitInMeters;
+const float kSphereRadius = 1.0 / kLengthUnitInMeters;
 const vec3 kSphereAlbedo = vec3(0.8);
 const vec3 kGroundAlbedo = vec3(0.0, 0.0, 0.04);
 
@@ -670,6 +670,7 @@ void main() {
 
   float sceneDepth = texture(u_depth, v_uv).x;
   vec4 sceneColour = texture(u_colour, v_uv);
+sceneColour.xyz = pow(sceneColour.xyz, vec3(2.2));
 
   float shadow_in;
   float shadow_out;
@@ -699,10 +700,8 @@ approximation as in <code>GetSunVisibility</code>:
 
   vec4 pp = u_inverseViewProjection * vec4(v_uv * 2.0 - vec2(1.0), sceneDepth * 2.0 - 1.0, 1.0);
   pp /= pp.w;
-  vec3 pointToCam = camera - pp.xyz;
-  float my_distance_to_intersection = length(pointToCam);
-  if (my_distance_to_intersection < 100.0)
-    distance_to_intersection = my_distance_to_intersection;
+  if (sceneDepth < 1.0)
+    distance_to_intersection = length(camera - pp.xyz);
 
   // Compute the radiance reflected by the sphere, if the ray intersects it.
   float sphere_alpha = 0.0;
@@ -714,8 +713,8 @@ approximation as in <code>GetSunVisibility</code>:
     float ray_sphere_distance =
         kSphereRadius - sqrt(ray_sphere_center_squared_distance);
     float ray_sphere_angular_distance = -ray_sphere_distance / p_dot_v;
-    sphere_alpha =
-        min(ray_sphere_angular_distance / fragment_angular_size, 1.0);
+    sphere_alpha = 1.0;
+      //  min(ray_sphere_angular_distance / fragment_angular_size, 1.0);
 
 /*
 <p>We can then compute the intersection point and its normal, and use them to
@@ -723,22 +722,22 @@ get the sun and sky irradiance received at this point. The reflected radiance
 follows, by multiplying the irradiance with the sphere BRDF:
 */
     vec3 point = camera + view_direction * distance_to_intersection;
-    vec3 normal = normalize(point - kSphereCenter);
+    vec3 normal = vec3(0,0,1);//normalize(point - kSphereCenter);
 
     // Compute the radiance reflected by the sphere.
     vec3 sky_irradiance;
     vec3 sun_irradiance = GetSunAndSkyIrradiance(
         point - earth_center, normal, sun_direction, sky_irradiance);
     sphere_radiance =
-        kSphereAlbedo * (1.0 / PI) * (sun_irradiance + sky_irradiance);
+        sceneColour.xyz * (1.0 / PI) * (sun_irradiance + sky_irradiance);
 
 /*
 <p>Finally, we take into account the aerial perspective between the camera and
 the sphere, which depends on the length of this segment which is in shadow:
 */
-    float shadow_length =
-        max(0.0, min(shadow_out, distance_to_intersection) - shadow_in) *
-        lightshaft_fadein_hack;
+    float shadow_length = 0;//
+        //max(0.0, min(shadow_out, distance_to_intersection) - shadow_in) *
+        //lightshaft_fadein_hack;
     vec3 transmittance;
     vec3 in_scatter = GetSkyRadianceToPoint(camera - earth_center,
         point - earth_center, shadow_length, sun_direction, transmittance);
