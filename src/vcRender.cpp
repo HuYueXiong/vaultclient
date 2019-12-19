@@ -254,10 +254,12 @@ const char kVertexShader[] = R"(
     uniform mat4 view_from_clip;
     layout(location = 0) in vec4 vertex;
     out vec3 view_ray;
+    out vec2 v_uv;
     void main() {
       view_ray =
           (model_from_view * vec4((view_from_clip * vertex).xyz, 0.0)).xyz;
       gl_Position = vertex;
+      v_uv = vertex.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
     })";
 
 //#include "atmosphere/demo/demo.glsl.inc"
@@ -458,7 +460,12 @@ uniform vec3 white_point;
 uniform vec3 earth_center;
 uniform vec3 sun_direction;
 uniform vec2 sun_size;
+uniform sampler2D u_colour;
+uniform sampler2D u_depth;
+uniform mat4 u_inverseViewProjection;
+
 in vec3 view_ray;
+in vec2 v_uv;
 layout(location = 0) out vec4 color;
 
 /*
@@ -470,7 +477,7 @@ luminance values (see <a href="../model.h.html">model.h</a>).
 */
 
 const float PI = 3.14159265;
-const vec3 kSphereCenter = vec3(0.0, 0.0, 1000.0) / kLengthUnitInMeters;
+const vec3 kSphereCenter = vec3(0.0, 0.0, 0.0) / kLengthUnitInMeters;
 const float kSphereRadius = 1000.0 / kLengthUnitInMeters;
 const vec3 kSphereAlbedo = vec3(0.8);
 const vec3 kGroundAlbedo = vec3(0.0, 0.0, 0.04);
@@ -661,6 +668,9 @@ void main() {
   float fragment_angular_size =
       length(dFdx(view_ray) + dFdy(view_ray)) / length(view_ray);
 
+  float sceneDepth = texture(u_depth, v_uv).x;
+  vec4 sceneColour = texture(u_colour, v_uv);
+
   float shadow_in;
   float shadow_out;
   GetSphereShadowInOut(view_direction, sun_direction, shadow_in, shadow_out);
@@ -686,6 +696,13 @@ approximation as in <code>GetSunVisibility</code>:
   float ray_sphere_center_squared_distance = p_dot_p - p_dot_v * p_dot_v;
   float distance_to_intersection = -p_dot_v - sqrt(
       kSphereRadius * kSphereRadius - ray_sphere_center_squared_distance);
+
+  vec4 pp = u_inverseViewProjection * vec4(v_uv * 2.0 - vec2(1.0), sceneDepth * 2.0 - 1.0, 1.0);
+  pp /= pp.w;
+  vec3 pointToCam = camera - pp.xyz;
+  float my_distance_to_intersection = length(pointToCam);
+  if (my_distance_to_intersection < 100.0)
+    distance_to_intersection = my_distance_to_intersection;
 
   // Compute the radiance reflected by the sphere, if the ray intersects it.
   float sphere_alpha = 0.0;
@@ -843,9 +860,10 @@ the scene:
 
 udFloat3 camOffset = udFloat3::zero();
 
-void DrawAtmosphere(vcState *pProgramState)
+void DrawAtmosphere(vcState *pProgramState, vcTexture *pSceneColour, vcTexture *pSceneDepth)
 {
   glUseProgram(program_);
+  pModel->SetProgramUniforms(program_, 0, 1, 2, 3);
 
   const float kFovY = 50.0 / 180.0 * kPi;
   const float kTanFovY = tan(kFovY / 2.0);
@@ -864,9 +882,9 @@ void DrawAtmosphere(vcState *pProgramState)
 
   udFloat4x4 inverseProjection = udFloat4x4::create(udInverse(pProgramState->camera.matrices.projection));
   udFloat4x4 inverseView = udFloat4x4::create(udInverse(pProgramState->camera.matrices.view));
-  //udFloat4x4 inverseViewProjection = udFloat4x4::create(pProgramState->camera.matrices.inverseViewProjection);
+  udFloat4x4 inverseViewProjection = udFloat4x4::create(pProgramState->camera.matrices.inverseViewProjection);
   glUniformMatrix4fv(glGetUniformLocation(program_, "view_from_clip"), 1, false, inverseProjection.a);
-  //glUniformMatrix4fv(glGetUniformLocation(program_, "u_inverseViewProjection"), 1, false, inverseViewProjection.a);
+  glUniformMatrix4fv(glGetUniformLocation(program_, "u_inverseViewProjection"), 1, false, inverseViewProjection.a);
 
 
   // Unit vectors of the camera frame, expressed in world space.
@@ -907,6 +925,17 @@ void DrawAtmosphere(vcState *pProgramState)
     sin(sun_azimuth_angle_radians_) * sin(sun_zenith_angle_radians_),
     cos(sun_zenith_angle_radians_));
   VERIFY_GL();
+
+  VERIFY_GL();
+  glActiveTexture(GL_TEXTURE4);
+  glBindTexture(GL_TEXTURE_2D, pSceneColour->id);
+  glUniform1i(glGetUniformLocation(program_, "u_colour"), 4);
+
+  VERIFY_GL();
+  glActiveTexture(GL_TEXTURE5);
+  glBindTexture(GL_TEXTURE_2D, pSceneDepth->id);
+  glUniform1i(glGetUniformLocation(program_, "u_depth"), 5);
+
   //glBindVertexArray(full_screen_quad_vao_);
   //glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
   vcMesh_Render(gInternalMeshes[vcInternalMeshType_ScreenQuad]);
@@ -1705,7 +1734,7 @@ void vcRender_BeginFrame(vcState *pProgramState, vcRenderContext *pRenderContext
 
   // Would be nice to use 'pRenderContext->activeRenderTarget' here, but this causes
   // a single frame 'flicker' if options are changed at run time.
-  renderData.pSceneTexture = pRenderContext->pTexture[pProgramState->settings.presentation.antiAliasingOn ? 0 :  1];
+  renderData.pSceneTexture = pRenderContext->pTexture[1];//pProgramState->settings.presentation.antiAliasingOn ? 0 : 1];
   renderData.sceneScaling = udFloat2::one();
 
   pRenderContext->activeRenderTarget = 0;
@@ -1829,9 +1858,27 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
 {
   udUnused(pDefaultFramebuffer);
 
+  udUnused(pDefaultFramebuffer);
+
   float aspect = pRenderContext->sceneResolution.x / (float)pRenderContext->sceneResolution.y;
 
-  camOffset = udFloat3::create(pProgramState->camera.position);
+  // Render and upload UD buffers
+  {
+    vcRender_RenderUD(pProgramState, pRenderContext, pRenderContext->udRenderContext.pRenderView, &pProgramState->camera, renderData, true);
+    vcTexture_UploadPixels(pRenderContext->udRenderContext.pColourTex, pRenderContext->udRenderContext.pColorBuffer, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
+    vcTexture_UploadPixels(pRenderContext->udRenderContext.pDepthTex, pRenderContext->udRenderContext.pDepthBuffer, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
+  }
+  
+  bool selectionBufferActive = vcRender_CreateSelectionBuffer(pProgramState, pRenderContext, renderData);
+  
+  vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true);
+  vcGLState_SetViewport(0, 0, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
+  
+  vcRender_OpaquePass(pProgramState, pRenderContext, renderData); // first pass
+  ////vcRender_VisualizationPass(pProgramState, pRenderContext);
+  //
+  //
+  //camOffset = udFloat3::create(pProgramState->camera.position);
   //view_zenith_angle_radians_ = pProgramState->camera.eulerRotation.x;
   //view_azimuth_angle_radians_ = pProgramState->camera.eulerRotation.y;
   //view_zenith_angle_radians_ += (previous_mouse_y_ - mouse_y) / kScale;
@@ -1840,28 +1887,13 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
   //view_azimuth_angle_radians_ += (previous_mouse_x_ - mouse_x) / kScale;
 
   vcGLState_SetViewport(0, 0, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
-  vcFramebuffer_Bind(pRenderContext->pFramebuffer[0], vcFramebufferClearOperation_All, 0xffff00ff);
+
+  //pRenderContext->activeRenderTarget = 1 - pRenderContext->activeRenderTarget;
+  vcFramebuffer_Bind(pRenderContext->pFramebuffer[1 - pRenderContext->activeRenderTarget], vcFramebufferClearOperation_All, 0x000000ff);
 
   HandleFakeInput();
-  DrawAtmosphere(pProgramState);
+  DrawAtmosphere(pProgramState, pRenderContext->pTexture[pRenderContext->activeRenderTarget], pRenderContext->pDepthTexture[pRenderContext->activeRenderTarget]);
   return;
-
-
-  // Render and upload UD buffers
-  {
-    vcRender_RenderUD(pProgramState, pRenderContext, pRenderContext->udRenderContext.pRenderView, &pProgramState->camera, renderData, true);
-    vcTexture_UploadPixels(pRenderContext->udRenderContext.pColourTex, pRenderContext->udRenderContext.pColorBuffer, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
-    vcTexture_UploadPixels(pRenderContext->udRenderContext.pDepthTex, pRenderContext->udRenderContext.pDepthBuffer, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
-  }
-
-  bool selectionBufferActive = vcRender_CreateSelectionBuffer(pProgramState, pRenderContext, renderData);
-
-  vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true);
-  vcGLState_SetViewport(0, 0, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
-
-  vcRender_OpaquePass(pProgramState, pRenderContext, renderData); // first pass
-  vcRender_VisualizationPass(pProgramState, pRenderContext);
-
   vcFramebuffer_Bind(pRenderContext->pFramebuffer[pRenderContext->activeRenderTarget]);
 
   vcRender_RenderAndApplyViewSheds(pProgramState, pRenderContext, renderData);
@@ -1872,8 +1904,8 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
 
   vcRender_FXAAPass(pProgramState, pRenderContext);
 
-  if (selectionBufferActive)
-    vcRender_ApplySelectionBuffer(pProgramState, pRenderContext);
+  //if (selectionBufferActive)
+   // vcRender_ApplySelectionBuffer(pProgramState, pRenderContext);
 
   if (pProgramState->settings.presentation.mouseAnchor != vcAS_None && (pProgramState->pickingSuccess || pProgramState->isUsingAnchorPoint))
   {
