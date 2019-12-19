@@ -341,8 +341,8 @@ void InitModel()
   // Wavelength independent solar irradiance "spectrum" (not physically
   // realistic, but was used in the original implementation).
   constexpr double kConstantSolarIrradiance = 1.5;
-  constexpr double kBottomRadius = 6360000.0;
-  constexpr double kTopRadius = 6420000.0;
+  constexpr double kBottomRadius = 6378137.0;//6360000.0;
+  constexpr double kTopRadius = 6420000.0 + 18137.0;
   constexpr double kRayleigh = 1.24062e-6;
   constexpr double kRayleighScaleHeight = 8000.0;
   constexpr double kMieScaleHeight = 1200.0;
@@ -463,6 +463,7 @@ uniform vec2 sun_size;
 uniform sampler2D u_colour;
 uniform sampler2D u_depth;
 uniform mat4 u_inverseViewProjection;
+uniform sampler2D u_stars;
 
 in vec3 view_ray;
 in vec2 v_uv;
@@ -672,6 +673,7 @@ void main() {
   float fragment_angular_size =
       length(dFdx(view_ray) + dFdy(view_ray)) / length(view_ray);
 
+  vec4 starsTexture = texture(u_stars, view_direction.xy * 0.5 + 0.5);
   float sceneDepth = texture(u_depth, v_uv).x;
   vec4 sceneColour = texture(u_colour, v_uv);
   sceneColour.xyz = pow(sceneColour.xyz, vec3(2.2));
@@ -779,9 +781,9 @@ on the ground by the sun and sky visibility factors):
     vec3 sky_irradiance;
     vec3 sun_irradiance = GetSunAndSkyIrradiance(
         point - earth_center, normal, sun_direction, sky_irradiance);
-    //ground_radiance = kGroundAlbedo * (1.0 / PI) * (
-    //    sun_irradiance * GetSunVisibility(point, sun_direction, sceneDepth) +
-    //    sky_irradiance * GetSkyVisibility(point, sceneDepth));
+    ground_radiance = kGroundAlbedo * (1.0 / PI) * (
+        sun_irradiance * GetSunVisibility(point, sun_direction, sceneDepth) +
+        sky_irradiance * GetSkyVisibility(point, sceneDepth));
 
     float shadow_length =
         max(0.0, min(shadow_out, distance_to_intersection) - shadow_in) *
@@ -811,11 +813,20 @@ the scene:
   if (dot(view_direction, sun_direction) > sun_size.y) {
     radiance = radiance + transmittance * GetSolarRadiance();
   }
+
   radiance = mix(radiance, ground_radiance, ground_alpha);
   radiance = mix(radiance, geometry_radiance, sphere_alpha);
+
   color.rgb = 
       pow(vec3(1.0) - exp(-radiance / white_point * exposure), vec3(1.0 / 2.2));
   color.a = 1.0;
+
+  float stars_fadein_hack = clamp(smoothstep(
+      -0.2, 0.05, dot(normalize(camera - earth_center), sun_direction)), 0.0, 1.0);
+
+  float height_stars_fadein_hack = clamp(smoothstep(10000, 60000, camera.z), 0.0, 1.0);
+  vec3 t = pow(transmittance, vec3(1.0 / 2.2));
+  color.rgb = mix(color.rgb, starsTexture.xyz, ((1.0 - stars_fadein_hack) + height_stars_fadein_hack)*min(1.0, dot(t,t)));
 }
 )demo";
 
@@ -857,17 +868,42 @@ the scene:
     }
     glUniform3f(glGetUniformLocation(program_, "white_point"),
       white_point_r, white_point_g, white_point_b);
-    glUniform3f(glGetUniformLocation(program_, "earth_center"),
-      0.0, 0.0, -kBottomRadius / kLengthUnitInMeters);
+
     glUniform2f(glGetUniformLocation(program_, "sun_size"),
       tan(kSunAngularRadius),
       cos(kSunAngularRadius));
 }
 
-void DrawAtmosphere(vcState *pProgramState, vcTexture *pSceneColour, vcTexture *pSceneDepth)
+void DrawAtmosphere(vcState *pProgramState, vcRenderContext *pRenderContext, vcTexture *pSceneColour, vcTexture *pSceneDepth)
 {
   glUseProgram(program_);
   pModel->SetProgramUniforms(program_, 0, 1, 2, 3);
+
+  if (!pProgramState->gis.isProjected || pProgramState->gis.zone.projection >= udGZPT_TransverseMercator) //TODO: Fix this list
+  {
+    udDouble3 earthCenterMaybe = pProgramState->camera.position;
+
+    if (pProgramState->gis.isProjected)
+      earthCenterMaybe.z = -pProgramState->gis.zone.semiMajorAxis;
+    else
+      earthCenterMaybe.z = -6378137.000;
+
+    //4978
+
+    glUniform3f(glGetUniformLocation(program_, "earth_center"),
+      earthCenterMaybe.x, earthCenterMaybe.y, earthCenterMaybe.z);//-kBottomRadius / kLengthUnitInMeters);
+  }
+  else
+  {
+    udGeoZone destZone = {};
+    udGeoZone_SetFromSRID(&destZone, 4978);
+    udDouble3 earthCenterMaybe = udGeoZone_TransformPoint(pProgramState->camera.position, pProgramState->gis.zone, destZone);
+
+    //4978
+
+    glUniform3f(glGetUniformLocation(program_, "earth_center"),
+      earthCenterMaybe.x, earthCenterMaybe.y, earthCenterMaybe.z);//-kBottomRadius / kLengthUnitInMeters);
+  }
 
   const float kFovY = 50.0 / 180.0 * kPi;
   const float kTanFovY = tan(kFovY / 2.0);
@@ -940,6 +976,10 @@ void DrawAtmosphere(vcState *pProgramState, vcTexture *pSceneColour, vcTexture *
   glBindTexture(GL_TEXTURE_2D, pSceneDepth->id);
   glUniform1i(glGetUniformLocation(program_, "u_depth"), 5);
 
+  glActiveTexture(GL_TEXTURE6);
+  glBindTexture(GL_TEXTURE_2D, pRenderContext->skyboxShaderPanorama.pSkyboxTexture->id);
+  glUniform1i(glGetUniformLocation(program_, "u_stars"), 6);
+
   //glBindVertexArray(full_screen_quad_vao_);
   //glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
   vcMesh_Render(gInternalMeshes[vcInternalMeshType_ScreenQuad]);
@@ -1003,7 +1043,7 @@ udResult vcRender_Init(vcState *pProgramState, vcRenderContext **ppRenderContext
   UD_ERROR_IF(!vcShader_CreateFromText(&pRenderContext->udRenderContext.splatIdShader.pProgram, g_udVertexShader, g_udSplatIdFragmentShader, vcP3UV2VertexLayout), udR_InternalError);
   UD_ERROR_IF(!vcShader_CreateFromText(&pRenderContext->fxaaShader.pProgram, g_FXAAVertexShader, g_FXAAFragmentShader, vcP3UV2VertexLayout), udR_InternalError);
 
-  UD_ERROR_CHECK(vcTexture_AsyncCreateFromFilename(&pRenderContext->skyboxShaderPanorama.pSkyboxTexture, pWorkerPool, "asset://assets/skyboxes/WaterClouds.jpg", vcTFM_Linear));
+  UD_ERROR_CHECK(vcTexture_AsyncCreateFromFilename(&pRenderContext->skyboxShaderPanorama.pSkyboxTexture, pWorkerPool, "asset://assets/skyboxes/stars.jpg", vcTFM_Linear));
   UD_ERROR_CHECK(vcCompass_Create(&pRenderContext->pCompass));
 
   UD_ERROR_IF(!vcShader_Bind(pRenderContext->visualizationShader.pProgram), udR_InternalError);
@@ -1887,7 +1927,7 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
 
   vcRender_RenderAndApplyViewSheds(pProgramState, pRenderContext, renderData);
 
- // vcRenderSkybox(pProgramState, pRenderContext); // Drawing skybox after opaque geometry saves a bit on fill rate.
+  vcRenderSkybox(pProgramState, pRenderContext); // Drawing skybox after opaque geometry saves a bit on fill rate.
   vcRenderTerrain(pProgramState, pRenderContext);
   vcRender_TransparentPass(pProgramState, pRenderContext, renderData);
 
@@ -1895,8 +1935,8 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
   pRenderContext->activeRenderTarget = 1 - pRenderContext->activeRenderTarget;
   vcFramebuffer_Bind(pRenderContext->pFramebuffer[pRenderContext->activeRenderTarget], vcFramebufferClearOperation_All, 0x000000ff);
   HandleFakeInput();
-  DrawAtmosphere(pProgramState, pRenderContext->pTexture[1 - pRenderContext->activeRenderTarget], pRenderContext->pDepthTexture[1 - pRenderContext->activeRenderTarget]);
 
+  DrawAtmosphere(pProgramState, pRenderContext, pRenderContext->pTexture[1 - pRenderContext->activeRenderTarget], pRenderContext->pDepthTexture[1 - pRenderContext->activeRenderTarget]);
 
   vcRender_FXAAPass(pProgramState, pRenderContext);
 
