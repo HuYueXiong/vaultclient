@@ -463,7 +463,7 @@ uniform vec2 sun_size;
 uniform sampler2D u_colour;
 uniform sampler2D u_depth;
 uniform mat4 u_inverseViewProjection;
-uniform sampler2D u_stars;
+//uniform sampler2D u_stars;
 
 in vec3 view_ray;
 in vec2 v_uv;
@@ -481,7 +481,7 @@ const float PI = 3.14159265;
 //const vec3 kSphereCenter = vec3(0.0, 0.0, 0.0) / kLengthUnitInMeters;
 //const float kSphereRadius = 1.0 / kLengthUnitInMeters;
 //const vec3 kSphereAlbedo = vec3(0.8);
-const vec3 kGroundAlbedo = vec3(1.0, 0.0, 1.04);
+const vec3 kGroundAlbedo = vec3(0.0, 0.0, 0.04);
 
 #ifdef USE_LUMINANCE
 #define GetSolarRadiance GetSolarLuminance
@@ -673,7 +673,7 @@ void main() {
   float fragment_angular_size =
       length(dFdx(view_ray) + dFdy(view_ray)) / length(view_ray);
 
-  vec4 starsTexture = texture(u_stars, view_direction.xy * 0.5 + 0.5);
+  //vec4 starsTexture = texture(u_stars, view_direction.xy * 0.5 + 0.5);
   float sceneDepth = texture(u_depth, v_uv).x;
   vec4 sceneColour = texture(u_colour, v_uv);
   sceneColour.xyz = pow(sceneColour.xyz, vec3(2.2));
@@ -682,7 +682,7 @@ void main() {
 
   float shadow_in;
   float shadow_out;
-  GetSphereShadowInOut(view_direction, sun_direction, shadow_in, shadow_out);
+  //GetSphereShadowInOut(view_direction, sun_direction, shadow_in, shadow_out);
 
   // Hack to fade out light shafts when the Sun is very close to the horizon.
   float lightshaft_fadein_hack = smoothstep(
@@ -706,23 +706,23 @@ approximation as in <code>GetSunVisibility</code>:
   //float distance_to_intersection = -p_dot_v - sqrt(
   //    kSphereRadius * kSphereRadius - ray_sphere_center_squared_distance);
 
-  float distance_to_intersection = sqrt(-1.0);
+  float distance_to_geom_intersection = sqrt(-1.0);
   vec4 pp = u_inverseViewProjection * vec4(v_uv * 2.0 - vec2(1.0), sceneDepth * 2.0 - 1.0, 1.0);
   pp /= pp.w;
   if (sceneDepth < 1.0)
-    distance_to_intersection = length(camera - pp.xyz);
+    distance_to_geom_intersection = length(camera - pp.xyz);
 
   // Compute the radiance reflected by the sphere, if the ray intersects it.
-  float sphere_alpha = 0.0;
+  float geometry_alpha = 0.0;
   vec3 geometry_radiance = vec3(0.0);
-  if (distance_to_intersection > 0.0) {
+  if (distance_to_geom_intersection > 0.0) {
     // Compute the distance between the view ray and the sphere, and the
     // corresponding (tangent of the) subtended angle. Finally, use this to
-    // compute the approximate analytic antialiasing factor sphere_alpha.
+    // compute the approximate analytic antialiasing factor geometry_alpha.
     //float ray_sphere_distance =
     //    kSphereRadius - sqrt(ray_sphere_center_squared_distance);
     //float ray_sphere_angular_distance = -ray_sphere_distance / p_dot_v;
-    sphere_alpha = 1.0;//min(1.0, 1.0 - distance_to_intersection * 0.001);
+    geometry_alpha = 1.0;//min(1.0, 1.0 - distance_to_geom_intersection * 0.001);
       //  min(ray_sphere_angular_distance / fragment_angular_size, 1.0);
 
 /*
@@ -730,7 +730,7 @@ approximation as in <code>GetSunVisibility</code>:
 get the sun and sky irradiance received at this point. The reflected radiance
 follows, by multiplying the irradiance with the sphere BRDF:
 */
-    vec3 point = camera + view_direction * distance_to_intersection;
+    vec3 point = camera + view_direction * distance_to_geom_intersection;
     vec3 normal = vec3(0,0,1);//normalize(point - kSphereCenter);
 
     // Compute the radiance reflected by the sphere.
@@ -745,12 +745,12 @@ follows, by multiplying the irradiance with the sphere BRDF:
 the sphere, which depends on the length of this segment which is in shadow:
 */
     float shadow_length = 0;//
-        //max(0.0, min(shadow_out, distance_to_intersection) - shadow_in) *
+        //max(0.0, min(shadow_out, distance_to_geom_intersection) - shadow_in) *
         //lightshaft_fadein_hack;
     vec3 transmittance;
     vec3 in_scatter = GetSkyRadianceToPoint(camera - earth_center,
         point - earth_center, shadow_length, sun_direction, transmittance);
-    geometry_radiance = geometry_radiance * transmittance + in_scatter;
+    geometry_radiance = geometry_radiance * transmittance;// + in_scatter;
   }
 
 /*
@@ -767,7 +767,7 @@ on the ground by the sun and sky visibility factors):
   p_dot_v = dot(p, view_direction);
   p_dot_p = dot(p, p);
   float ray_earth_center_squared_distance = p_dot_p - p_dot_v * p_dot_v;
-  distance_to_intersection = -p_dot_v - sqrt(
+  float distance_to_intersection = -p_dot_v - sqrt(
       earth_center.z * earth_center.z - ray_earth_center_squared_distance);
 
   // Compute the radiance reflected by the ground, if the ray intersects it.
@@ -814,19 +814,22 @@ the scene:
     radiance = radiance + transmittance * GetSolarRadiance();
   }
 
-  radiance = mix(radiance, ground_radiance, ground_alpha);
-  radiance = mix(radiance, geometry_radiance, sphere_alpha);
+  radiance = mix(radiance, ground_radiance + geometry_radiance, ground_alpha);
+  //radiance = mix(radiance, geometry_radiance, geometry_alpha * (1.0 - distance_to_geom_intersection / 1000000.0));//min(1.0, geometry_alpha * ground_alpha);
 
   color.rgb = 
       pow(vec3(1.0) - exp(-radiance / white_point * exposure), vec3(1.0 / 2.2));
   color.a = 1.0;
 
-  float stars_fadein_hack = clamp(smoothstep(
-      -0.2, 0.05, dot(normalize(camera - earth_center), sun_direction)), 0.0, 1.0);
+  //float stars_fadein_hack = clamp(smoothstep(
+  //    -0.2, 0.05, dot(normalize(camera - earth_center), sun_direction)), 0.0, 1.0);
+  
+  //float height_stars_fadein_hack = clamp(smoothstep(10000, 60000, camera.z), 0.0, 1.0);
+  //vec3 t = pow(transmittance, vec3(1.0 / 2.2));
+  //color.rgb = mix(color.rgb, starsTexture.xyz, ((1.0 - stars_fadein_hack) + height_stars_fadein_hack)*min(1.0, dot(t,t)));
+  //color.rgb *= min(1.0, dot(t,t));
+  //color.rgb = vec3(pow(ground_radiance, vec3(1.0 / 2.2)));
 
-  float height_stars_fadein_hack = clamp(smoothstep(10000, 60000, camera.z), 0.0, 1.0);
-  vec3 t = pow(transmittance, vec3(1.0 / 2.2));
-  color.rgb = mix(color.rgb, starsTexture.xyz, ((1.0 - stars_fadein_hack) + height_stars_fadein_hack)*min(1.0, dot(t,t)));
 }
 )demo";
 
@@ -976,9 +979,9 @@ void DrawAtmosphere(vcState *pProgramState, vcRenderContext *pRenderContext, vcT
   glBindTexture(GL_TEXTURE_2D, pSceneDepth->id);
   glUniform1i(glGetUniformLocation(program_, "u_depth"), 5);
 
-  glActiveTexture(GL_TEXTURE6);
-  glBindTexture(GL_TEXTURE_2D, pRenderContext->skyboxShaderPanorama.pSkyboxTexture->id);
-  glUniform1i(glGetUniformLocation(program_, "u_stars"), 6);
+  //glActiveTexture(GL_TEXTURE6);
+  //glBindTexture(GL_TEXTURE_2D, pRenderContext->skyboxShaderPanorama.pSkyboxTexture->id);
+  //glUniform1i(glGetUniformLocation(program_, "u_stars"), 6);
 
   //glBindVertexArray(full_screen_quad_vao_);
   //glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
