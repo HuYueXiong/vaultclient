@@ -678,6 +678,8 @@ void main() {
   vec4 sceneColour = texture(u_colour, v_uv);
   sceneColour.xyz = pow(sceneColour.xyz, vec3(2.2));
 
+  float height_scatter_blend_hack = clamp(smoothstep(0.0, 5000.0, camera.z), 0.0, 1.0);
+
   gl_FragDepth = sceneDepth;
 
   float shadow_in;
@@ -750,7 +752,7 @@ the sphere, which depends on the length of this segment which is in shadow:
     vec3 transmittance;
     vec3 in_scatter = GetSkyRadianceToPoint(camera - earth_center,
         point - earth_center, shadow_length, sun_direction, transmittance);
-    geometry_radiance = geometry_radiance * transmittance;// + in_scatter;
+    geometry_radiance = geometry_radiance * transmittance + in_scatter * (1.0 - height_scatter_blend_hack);
   }
 
 /*
@@ -791,7 +793,7 @@ on the ground by the sun and sky visibility factors):
     vec3 transmittance;
     vec3 in_scatter = GetSkyRadianceToPoint(camera - earth_center,
         point - earth_center, shadow_length, sun_direction, transmittance);
-    ground_radiance = ground_radiance * transmittance + in_scatter;
+    ground_radiance = ground_radiance * transmittance + in_scatter;// * height_scatter_blend_hack;
     ground_alpha = 1.0;
   }
 
@@ -815,7 +817,7 @@ the scene:
   }
 
   radiance = mix(radiance, ground_radiance + geometry_radiance, ground_alpha);
-  //radiance = mix(radiance, geometry_radiance, geometry_alpha * (1.0 - distance_to_geom_intersection / 1000000.0));//min(1.0, geometry_alpha * ground_alpha);
+  //radiance = mix(radiance, geometry_radiance, geometry_alpha);// * (1.0 - distance_to_geom_intersection / 1000000.0));//min(1.0, geometry_alpha * ground_alpha);
 
   color.rgb = 
       pow(vec3(1.0) - exp(-radiance / white_point * exposure), vec3(1.0 / 2.2));
