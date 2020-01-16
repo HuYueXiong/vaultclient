@@ -481,7 +481,7 @@ const float PI = 3.14159265;
 //const vec3 kSphereCenter = vec3(0.0, 0.0, 0.0) / kLengthUnitInMeters;
 //const float kSphereRadius = 1.0 / kLengthUnitInMeters;
 //const vec3 kSphereAlbedo = vec3(0.8);
-const vec3 kGroundAlbedo = vec3(0.0, 0.0, 0.04);
+const vec3 kGroundAlbedo = vec3(1.0, 1.0, 1.0);//0.0, 0.0, 0.04);
 
 #ifdef USE_LUMINANCE
 #define GetSolarRadiance GetSolarLuminance
@@ -717,7 +717,7 @@ approximation as in <code>GetSunVisibility</code>:
   // Compute the radiance reflected by the sphere, if the ray intersects it.
   float geometry_alpha = 0.0;
   vec3 geometry_radiance = vec3(0.0);
-  if (false) {//distance_to_geom_intersection > 0.0) {
+  if (distance_to_geom_intersection > 0.0) {
     // Compute the distance between the view ray and the sphere, and the
     // corresponding (tangent of the) subtended angle. Finally, use this to
     // compute the approximate analytic antialiasing factor geometry_alpha.
@@ -783,11 +783,11 @@ on the ground by the sun and sky visibility factors):
     vec3 sky_irradiance;
     vec3 sun_irradiance = GetSunAndSkyIrradiance(
         point - earth_center, normal, sun_direction, sky_irradiance);
-    ground_radiance = sceneColour.xyz * (1.0 / PI) * (
+    ground_radiance = kGroundAlbedo * (1.0 / PI) * (
         sun_irradiance * GetSunVisibility(point, sun_direction, sceneDepth) +
         sky_irradiance * GetSkyVisibility(point, sceneDepth));
 
-    color = vec4(ground_radiance, 1.0); return;
+
     float shadow_length =
         max(0.0, min(shadow_out, distance_to_intersection) - shadow_in) *
         lightshaft_fadein_hack;
@@ -796,6 +796,9 @@ on the ground by the sun and sky visibility factors):
         point - earth_center, shadow_length, sun_direction, transmittance);
     ground_radiance = ground_radiance * transmittance + in_scatter;// * height_scatter_blend_hack;
     ground_alpha = 1.0;
+
+    //gl_FragDepth = 0.0;
+    //color = vec4(pow(ground_radiance, vec3(1.0 / 2.2)), 1.0); return;
   }
 
 /*
@@ -818,7 +821,7 @@ the scene:
   }
 
   radiance = mix(radiance, ground_radiance, ground_alpha);
-  //radiance = mix(radiance, geometry_radiance, geometry_alpha);// * (1.0 - distance_to_geom_intersection / 1000000.0));//min(1.0, geometry_alpha * ground_alpha);
+  radiance = mix(radiance, geometry_radiance, geometry_alpha);// * (1.0 - distance_to_geom_intersection / 1000000.0));//min(1.0, geometry_alpha * ground_alpha);
 
   color.rgb = 
       pow(vec3(1.0) - exp(-radiance / white_point * exposure), vec3(1.0 / 2.2));
@@ -873,15 +876,17 @@ the scene:
       white_point_b /= white_point;
     }
     glUniform3f(glGetUniformLocation(program_, "white_point"),
-      white_point_r, white_point_g, white_point_b);
+      (float)white_point_r, (float)white_point_g, (float)white_point_b);
 
     glUniform2f(glGetUniformLocation(program_, "sun_size"),
-      tan(kSunAngularRadius),
-      cos(kSunAngularRadius));
+      (float)udTan(kSunAngularRadius),
+      (float)udCos(kSunAngularRadius));
 }
 
 void DrawAtmosphere(vcState *pProgramState, vcRenderContext *pRenderContext, vcTexture *pSceneColour, vcTexture *pSceneDepth)
 {
+  (pRenderContext);
+
   glUseProgram(program_);
   pModel->SetProgramUniforms(program_, 0, 1, 2, 3);
 
@@ -897,7 +902,7 @@ void DrawAtmosphere(vcState *pProgramState, vcRenderContext *pRenderContext, vcT
     //4978
 
     glUniform3f(glGetUniformLocation(program_, "earth_center"),
-      earthCenterMaybe.x, earthCenterMaybe.y, earthCenterMaybe.z);//-kBottomRadius / kLengthUnitInMeters);
+      (float)earthCenterMaybe.x, (float)earthCenterMaybe.y, (float)earthCenterMaybe.z);//-kBottomRadius / kLengthUnitInMeters);
   }
   else
   {
@@ -908,12 +913,12 @@ void DrawAtmosphere(vcState *pProgramState, vcRenderContext *pRenderContext, vcT
     //4978
 
     glUniform3f(glGetUniformLocation(program_, "earth_center"),
-      earthCenterMaybe.x, earthCenterMaybe.y, earthCenterMaybe.z);//-kBottomRadius / kLengthUnitInMeters);
+      (float)earthCenterMaybe.x, (float)earthCenterMaybe.y, (float)earthCenterMaybe.z);//-kBottomRadius / kLengthUnitInMeters);
   }
 
-  const float kFovY = 50.0 / 180.0 * kPi;
-  const float kTanFovY = tan(kFovY / 2.0);
-  float aspect_ratio = static_cast<float>(sceneRes.x) / sceneRes.y;
+  const float kFovY = (float)(50.0 / 180.0 * kPi);
+  const float kTanFovY = udTan(kFovY / 2.0f);
+  //float aspect_ratio = static_cast<float>(sceneRes.x) / sceneRes.y;
 
   //// Transform matrix from clip space to camera space (i.e. the inverse of a
   //// GL_PROJECTION matrix).
@@ -934,14 +939,14 @@ void DrawAtmosphere(vcState *pProgramState, vcRenderContext *pRenderContext, vcT
 
 
   // Unit vectors of the camera frame, expressed in world space.
-  float cos_z = cos(view_zenith_angle_radians_);
-  float sin_z = sin(view_zenith_angle_radians_);
-  float cos_a = cos(view_azimuth_angle_radians_);
-  float sin_a = sin(view_azimuth_angle_radians_);
+  float cos_z = (float)udCos(view_zenith_angle_radians_);
+  float sin_z = (float)udSin(view_zenith_angle_radians_);
+  float cos_a = (float)udCos(view_azimuth_angle_radians_);
+  float sin_a = (float)udSin(view_azimuth_angle_radians_);
   float ux[3] = { -sin_a, cos_a, 0.0 };
   float uy[3] = { -cos_z * cos_a, -cos_z * sin_a, sin_z };
   float uz[3] = { sin_z * cos_a, sin_z * sin_a, cos_z };
-  float l = view_distance_meters_ / kLengthUnitInMeters;
+  float l = (float)(view_distance_meters_ / kLengthUnitInMeters);
 
   // Transform matrix from camera frame to world space (i.e. the inverse of a
   // GL_MODELVIEW matrix).
@@ -956,20 +961,20 @@ void DrawAtmosphere(vcState *pProgramState, vcRenderContext *pRenderContext, vcT
   GLuint exposureLoc = glGetUniformLocation(program_, "exposure");
   VERIFY_GL();
   glUniform3f(camLoc,
-    pProgramState->camera.position.x,
-    pProgramState->camera.position.y,
-    pProgramState->camera.position.z);
+    (float)pProgramState->camera.position.x,
+    (float)pProgramState->camera.position.y,
+    (float)pProgramState->camera.position.z);
   VERIFY_GL();
   glUniform1f(exposureLoc,
-    use_luminance_ != NONE ? exposure_ * 1e-5 : exposure_);
+    (float)(use_luminance_ != NONE ? exposure_ * 1e-5 : exposure_));
   VERIFY_GL();
   glUniformMatrix4fv(glGetUniformLocation(program_, "model_from_view"),
     1, false, inverseView.a);
   VERIFY_GL();
   glUniform3f(glGetUniformLocation(program_, "sun_direction"),
-    cos(sun_azimuth_angle_radians_) * sin(sun_zenith_angle_radians_),
-    sin(sun_azimuth_angle_radians_) * sin(sun_zenith_angle_radians_),
-    cos(sun_zenith_angle_radians_));
+    (float)(udCos(sun_azimuth_angle_radians_) * udSin(sun_zenith_angle_radians_)),
+    (float)(udSin(sun_azimuth_angle_radians_) * udSin(sun_zenith_angle_radians_)),
+    (float)udCos(sun_zenith_angle_radians_));
   VERIFY_GL();
 
   VERIFY_GL();
@@ -997,8 +1002,8 @@ int previous_mouse_y_ = 0;
 
 void HandleFakeInput()
 {
-  int mouse_x = ImGui::GetIO().MousePos.x;
-  int mouse_y = ImGui::GetIO().MousePos.y;
+  int mouse_x = (int)ImGui::GetIO().MousePos.x;
+  int mouse_y = (int)ImGui::GetIO().MousePos.y;
 
   if (ImGui::GetIO().MouseDown[0])
   {
@@ -1920,7 +1925,7 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
   }
   
   bool selectionBufferActive = vcRender_CreateSelectionBuffer(pProgramState, pRenderContext, renderData);
-  
+  (selectionBufferActive);
   vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true);
   vcGLState_SetViewport(0, 0, pRenderContext->sceneResolution.x, pRenderContext->sceneResolution.y);
   

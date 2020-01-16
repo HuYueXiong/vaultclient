@@ -594,7 +594,11 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
 
   for (int t = 0; t < TileVertexResolution * TileVertexResolution; ++t)
   {
-    udFloat4 eyeSpaceVertexPosition = udFloat4::create(view * udDouble4::create(pNode->worldBounds[t], 0.0, 1.0));
+
+    double dist = udMag2(pNode->worldBounds[t] - pTileRenderer->cameraPosition.toVector2());
+    float heightOffset = (float)(dist * 0.00008); 
+
+    udFloat4 eyeSpaceVertexPosition = udFloat4::create(view * udDouble4::create(pNode->worldBounds[t], -heightOffset, 1.0));
     pTileRenderer->presentShader.everyObject.eyePositions[t] = eyeSpaceVertexPosition;
   }
 
