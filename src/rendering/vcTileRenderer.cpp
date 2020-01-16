@@ -594,7 +594,6 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
 
   for (int t = 0; t < TileVertexResolution * TileVertexResolution; ++t)
   {
-
     double dist = udMag2(pNode->worldBounds[t] - pTileRenderer->cameraPosition.toVector2());
     float heightOffset = (float)(dist * 0.00008); 
 

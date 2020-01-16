@@ -198,7 +198,7 @@ void vcCamera_Apply(vcState *pProgramState, vcCamera *pCamera, vcCameraSettings 
     addPos += pCamInput->controllerDPADInput;
 
     addPos.z += vertPos;
-    addPos *= pCamSettings->moveSpeed * speedModifier * deltaTime;
+    addPos *= pCamSettings->moveSpeed * speedModifier * deltaTime * 10.0f;
     pCamInput->smoothTranslation += addPos;
 
     // Check for a nan camera position and reset to zero, this allows the UI to be usable in the event of error

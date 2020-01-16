@@ -481,7 +481,7 @@ const float PI = 3.14159265;
 //const vec3 kSphereCenter = vec3(0.0, 0.0, 0.0) / kLengthUnitInMeters;
 //const float kSphereRadius = 1.0 / kLengthUnitInMeters;
 //const vec3 kSphereAlbedo = vec3(0.8);
-const vec3 kGroundAlbedo = vec3(1.0, 1.0, 1.0);//0.0, 0.0, 0.04);
+const vec3 kGroundAlbedo = vec3(0.0, 0.0, 0.04);
 
 #ifdef USE_LUMINANCE
 #define GetSolarRadiance GetSolarLuminance
@@ -667,6 +667,10 @@ perspective for the sphere and the planet:
 */
 
 void main() {
+
+  //if (camera.z <= 0.0)
+  //  color.rgb = vec3(0,0,0);
+
   // Normalized view direction vector.
   vec3 view_direction = normalize(view_ray);
   // Tangent of the angle subtended by this fragment.
@@ -677,8 +681,6 @@ void main() {
   float sceneDepth = texture(u_depth, v_uv).x;
   vec4 sceneColour = texture(u_colour, v_uv);
   sceneColour.xyz = pow(sceneColour.xyz, vec3(2.2));
-
-  float height_scatter_blend_hack = clamp(smoothstep(0.0, 5000.0, camera.z), 0.0, 1.0);
 
   gl_FragDepth = sceneDepth;
 
@@ -834,8 +836,7 @@ the scene:
   //vec3 t = pow(transmittance, vec3(1.0 / 2.2));
   //color.rgb = mix(color.rgb, starsTexture.xyz, ((1.0 - stars_fadein_hack) + height_stars_fadein_hack)*min(1.0, dot(t,t)));
   //color.rgb *= min(1.0, dot(t,t));
-  //color.rgb = vec3(pow(ground_radiance, vec3(1.0 / 2.2)));
-
+  //color.rgb = vec3(transmittance);
 }
 )demo";
 
