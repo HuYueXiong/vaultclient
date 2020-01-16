@@ -717,7 +717,7 @@ approximation as in <code>GetSunVisibility</code>:
   // Compute the radiance reflected by the sphere, if the ray intersects it.
   float geometry_alpha = 0.0;
   vec3 geometry_radiance = vec3(0.0);
-  if (distance_to_geom_intersection > 0.0) {
+  if (false) {//distance_to_geom_intersection > 0.0) {
     // Compute the distance between the view ray and the sphere, and the
     // corresponding (tangent of the) subtended angle. Finally, use this to
     // compute the approximate analytic antialiasing factor geometry_alpha.
@@ -752,7 +752,7 @@ the sphere, which depends on the length of this segment which is in shadow:
     vec3 transmittance;
     vec3 in_scatter = GetSkyRadianceToPoint(camera - earth_center,
         point - earth_center, shadow_length, sun_direction, transmittance);
-    geometry_radiance = geometry_radiance * transmittance + in_scatter * (1.0 - height_scatter_blend_hack);
+    geometry_radiance = geometry_radiance * transmittance + in_scatter;// * (1.0 - height_scatter_blend_hack);
   }
 
 /*
@@ -783,10 +783,11 @@ on the ground by the sun and sky visibility factors):
     vec3 sky_irradiance;
     vec3 sun_irradiance = GetSunAndSkyIrradiance(
         point - earth_center, normal, sun_direction, sky_irradiance);
-    ground_radiance = kGroundAlbedo * (1.0 / PI) * (
+    ground_radiance = sceneColour.xyz * (1.0 / PI) * (
         sun_irradiance * GetSunVisibility(point, sun_direction, sceneDepth) +
         sky_irradiance * GetSkyVisibility(point, sceneDepth));
 
+    color = vec4(ground_radiance, 1.0); return;
     float shadow_length =
         max(0.0, min(shadow_out, distance_to_intersection) - shadow_in) *
         lightshaft_fadein_hack;
@@ -816,7 +817,7 @@ the scene:
     radiance = radiance + transmittance * GetSolarRadiance();
   }
 
-  radiance = mix(radiance, ground_radiance + geometry_radiance, ground_alpha);
+  radiance = mix(radiance, ground_radiance, ground_alpha);
   //radiance = mix(radiance, geometry_radiance, geometry_alpha);// * (1.0 - distance_to_geom_intersection / 1000000.0));//min(1.0, geometry_alpha * ground_alpha);
 
   color.rgb = 

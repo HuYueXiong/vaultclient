@@ -405,7 +405,7 @@ void main()
 {
   // TODO: could have precision issues on some devices
   vec4 finalClipPos = u_projection * u_eyePositions[int(a_uv.z)];
-
+  
   v_uv = a_uv.xy;
   v_colour = u_colour;
   gl_Position = finalClipPos;
