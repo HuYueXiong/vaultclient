@@ -14,6 +14,7 @@
 #include "vcInternalModels.h"
 #include "vcSceneLayerRenderer.h"
 #include "vcCamera.h"
+#include "udStringUtil.h"
 
 #include "stb_image.h"
 #include <vector>
@@ -409,7 +410,7 @@ void InitModel()
     glCompileShader(vertex_shader_);
 
     const std::string fragment_shader_str =
-      "#version 330\n" +
+      //"#version 330\n" +
       std::string(use_luminance_ != NONE ? "#define USE_LUMINANCE\n" : "") +
       "const float kLengthUnitInMeters = " +
       std::to_string(kLengthUnitInMeters) + ";\n" +
@@ -477,7 +478,7 @@ to select either the functions returning radiance values, or those returning
 luminance values (see <a href="../model.h.html">model.h</a>).
 */
 
-const float PI = 3.14159265;
+//const float PI = 3.14159265;
 //const vec3 kSphereCenter = vec3(0.0, 0.0, 0.0) / kLengthUnitInMeters;
 //const float kSphereRadius = 1.0 / kLengthUnitInMeters;
 //const vec3 kSphereAlbedo = vec3(0.8);
@@ -840,22 +841,45 @@ the scene:
 }
 )demo";
 
-    const char *fragment_shader_source = fragment_shader_str.c_str();
+    const char *pCompleteAtmosphereShaderSource = nullptr;
+    udSprintf(&pCompleteAtmosphereShaderSource, "%s\n%s", pModel->shaderSource().c_str(), fragment_shader_str.c_str());
+
+
+    const char *fragment_shader_source = pCompleteAtmosphereShaderSource;// fragment_shader_str.c_str();
     fragment_shader_ = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragment_shader_, 1, &fragment_shader_source, NULL);
     glCompileShader(fragment_shader_);
-
+    VERIFY_GL();
     if (program_ != 0) {
       glDeleteProgram(program_);
     }
     program_ = glCreateProgram();
     glAttachShader(program_, vertex_shader_);
     glAttachShader(program_, fragment_shader_);
-    glAttachShader(program_, pModel->shader());
+    //glAttachShader(program_, pModel->shader());
     glLinkProgram(program_);
-    glDetachShader(program_, vertex_shader_);
-    glDetachShader(program_, fragment_shader_);
-    glDetachShader(program_, pModel->shader());
+    //glDetachShader(program_, vertex_shader_);
+    //glDetachShader(program_, fragment_shader_);
+    ////glDetachShader(program_, pModel->shader());
+
+    //glLinkProgram(programObject);
+    GLint linked;
+    glGetProgramiv(program_, GL_LINK_STATUS, &linked);
+    if (!linked)
+    {
+      GLint blen = 1024;
+      GLsizei slen = 0;
+      glGetProgramiv(program_, GL_INFO_LOG_LENGTH, &blen);
+      if (blen > 1)
+      {
+        GLchar *linker_log = (GLchar *)udAlloc(blen);
+        glGetProgramInfoLog(program_, blen, &slen, linker_log);
+        udDebugPrintf("%s", linker_log);
+        udFree(linker_log);
+      }
+    }
+
+    VERIFY_GL();
 
     /*
     <p>Finally, it sets the uniforms of this program that can be set once and for
@@ -864,6 +888,8 @@ the scene:
     */
 
     glUseProgram(program_);
+
+    VERIFY_GL();
     pModel->SetProgramUniforms(program_, 0, 1, 2, 3);
     double white_point_r = 1.0;
     double white_point_g = 1.0;
