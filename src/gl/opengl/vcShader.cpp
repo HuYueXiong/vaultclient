@@ -13,7 +13,7 @@ GLint vcBuildShader(GLenum type, const GLchar *shaderCode)
   GLint compiled;
   GLint shaderCodeLen = (GLint)strlen(shaderCode);
   GLint shaderObject = glCreateShader(type);
-  glShaderSource(shaderObject, 1, &shaderCode, &shaderCodeLen);
+  glShaderSource(shaderObject, 1, &shaderCode, NULL);//&shaderCodeLen);
   glCompileShader(shaderObject);
   glGetShaderiv(shaderObject, GL_COMPILE_STATUS, &compiled);
 
