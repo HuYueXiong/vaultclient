@@ -1525,6 +1525,7 @@ void main()
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
 
+    /*
 const char *const g_AtmosphereVertexShader = VERT_HEADER R"shader(
 
 uniform mat4 model_from_view;
@@ -1748,3 +1749,4 @@ const char * const g_AtmosphereUtilShader = R"shader(
       return sun_irradiance * SUN_SPECTRAL_RADIANCE_TO_LUMINANCE;
     }
 )shader";
+*/
