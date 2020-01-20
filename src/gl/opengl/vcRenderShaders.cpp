@@ -1529,14 +1529,16 @@ const char *const g_AtmosphereVertexShader = VERT_HEADER R"shader(
 
 uniform mat4 model_from_view;
 uniform mat4 view_from_clip;
-layout(location = 0) in vec4 vertex;
+layout(location = 0) in vec3 a_pos;
+layout(location = 1) in vec2 a_uv;
 out vec3 view_ray;
 out vec2 v_uv;
 void main() {
+  vec4 vertex = vec4(a_pos, 1.0);
   view_ray =
       (model_from_view * vec4((view_from_clip * vertex).xyz, 0.0)).xyz;
   gl_Position = vertex;
-  v_uv = vertex.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
+  v_uv = a_uv;//vertex.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
 }
 )shader";
 
@@ -1595,6 +1597,11 @@ void main() {
   sceneColour.xyz = pow(sceneColour.xyz, vec3(2.2));
 
   gl_FragDepth = sceneDepth;
+  if (sceneDepth == 1.0)
+  {
+    color = vec4(1,0,1,1);
+return;
+}
 
   vec3 p = vec3(0.0);//camera - kSphereCenter;
   float p_dot_v = dot(p, view_direction);
@@ -1676,4 +1683,68 @@ void main() {
   color.a = 1.0;
 }
 
+)shader";
+
+
+const char * const g_AtmosphereUtilShader = R"shader(
+    uniform sampler2D transmittance_texture;
+    uniform sampler3D scattering_texture;
+    uniform sampler3D single_mie_scattering_texture;
+    uniform sampler2D irradiance_texture;
+    #ifdef RADIANCE_API_ENABLED
+    RadianceSpectrum GetSolarRadiance() {
+      return ATMOSPHERE.solar_irradiance /
+          (PI * ATMOSPHERE.sun_angular_radius * ATMOSPHERE.sun_angular_radius);
+    }
+    RadianceSpectrum GetSkyRadiance(
+        Position camera, Direction view_ray, Length shadow_length,
+        Direction sun_direction, out DimensionlessSpectrum transmittance) {
+      return GetSkyRadiance(ATMOSPHERE, transmittance_texture,
+          scattering_texture, single_mie_scattering_texture,
+          camera, view_ray, shadow_length, sun_direction, transmittance);
+    }
+    RadianceSpectrum GetSkyRadianceToPoint(
+        Position camera, Position point, Length shadow_length,
+        Direction sun_direction, out DimensionlessSpectrum transmittance) {
+      return GetSkyRadianceToPoint(ATMOSPHERE, transmittance_texture,
+          scattering_texture, single_mie_scattering_texture,
+          camera, point, shadow_length, sun_direction, transmittance);
+    }
+    IrradianceSpectrum GetSunAndSkyIrradiance(
+       Position p, Direction normal, Direction sun_direction,
+       out IrradianceSpectrum sky_irradiance) {
+      return GetSunAndSkyIrradiance(ATMOSPHERE, transmittance_texture,
+          irradiance_texture, p, normal, sun_direction, sky_irradiance);
+    }
+    #endif
+    Luminance3 GetSolarLuminance() {
+      return ATMOSPHERE.solar_irradiance /
+          (PI * ATMOSPHERE.sun_angular_radius * ATMOSPHERE.sun_angular_radius) *
+          SUN_SPECTRAL_RADIANCE_TO_LUMINANCE;
+    }
+    Luminance3 GetSkyLuminance(
+        Position camera, Direction view_ray, Length shadow_length,
+        Direction sun_direction, out DimensionlessSpectrum transmittance) {
+      return GetSkyRadiance(ATMOSPHERE, transmittance_texture,
+          scattering_texture, single_mie_scattering_texture,
+          camera, view_ray, shadow_length, sun_direction, transmittance) *
+          SKY_SPECTRAL_RADIANCE_TO_LUMINANCE;
+    }
+    Luminance3 GetSkyLuminanceToPoint(
+        Position camera, Position point, Length shadow_length,
+        Direction sun_direction, out DimensionlessSpectrum transmittance) {
+      return GetSkyRadianceToPoint(ATMOSPHERE, transmittance_texture,
+          scattering_texture, single_mie_scattering_texture,
+          camera, point, shadow_length, sun_direction, transmittance) *
+          SKY_SPECTRAL_RADIANCE_TO_LUMINANCE;
+    }
+    Illuminance3 GetSunAndSkyIlluminance(
+       Position p, Direction normal, Direction sun_direction,
+       out IrradianceSpectrum sky_irradiance) {
+      IrradianceSpectrum sun_irradiance = GetSunAndSkyIrradiance(
+          ATMOSPHERE, transmittance_texture, irradiance_texture, p, normal,
+          sun_direction, sky_irradiance);
+      sky_irradiance *= SKY_SPECTRAL_RADIANCE_TO_LUMINANCE;
+      return sun_irradiance * SUN_SPECTRAL_RADIANCE_TO_LUMINANCE;
+    }
 )shader";

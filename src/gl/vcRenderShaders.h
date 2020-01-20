@@ -5,6 +5,7 @@
 
 extern const char *const g_AtmosphereVertexShader;
 extern const char *const g_AtmosphereFragmentShader;
+extern const char *const g_AtmosphereUtilShader;
 
 extern const char* const g_VisualizationVertexShader;
 extern const char *const g_VisualizationFragmentShader;

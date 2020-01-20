@@ -14,6 +14,7 @@
 #include "vcInternalModels.h"
 #include "vcSceneLayerRenderer.h"
 #include "vcCamera.h"
+#include "udStringUtil.h"
 
 #include "stb_image.h"
 #include <vector>
@@ -267,7 +268,7 @@ enum Luminance {
 
 #include "gl/opengl/vcOpenGL.h"
 
-vcShader *pAtmosphereShader;
+vcShader *pAtmosphereShader = nullptr;
 
 bool use_constant_solar_spectrum_ = false;
 bool use_ozone_ = true;
@@ -386,8 +387,12 @@ void InitModel()
     use_combined_textures_, use_half_precision_);
     pModel->Init();
 
-    vcVertexLayoutTypes types[] = { vcVLT_Position4 };
-    vcShader_CreateFromText(&pAtmosphereShader, g_AtmosphereVertexShader, g_AtmosphereFragmentShader, types);
+    //vcVertexLayoutTypes types[] = { vcVLT_Position4 };
+    const char *pCompleteAtmosphereShaderSource = nullptr;
+    udSprintf(&pCompleteAtmosphereShaderSource, "%s\n%s", g_AtmosphereFragmentShader, g_AtmosphereUtilShader);
+
+    vcShader_CreateFromText(&pAtmosphereShader, g_AtmosphereVertexShader, pCompleteAtmosphereShaderSource, vcP3UV2VertexLayout);
+    udFree(pCompleteAtmosphereShaderSource);
 
     vcShader_Bind(pAtmosphereShader);
     pModel->SetProgramUniforms(pAtmosphereShader->programID, 0, 1, 2, 3);
@@ -414,7 +419,7 @@ void DrawAtmosphere(vcState *pProgramState, vcRenderContext *pRenderContext, vcT
 {
   (pRenderContext);
 
-  glUseProgram(pAtmosphereShader->programID);
+  vcShader_Bind(pAtmosphereShader);
   pModel->SetProgramUniforms(pAtmosphereShader->programID, 0, 1, 2, 3);
 
   if (!pProgramState->gis.isProjected || pProgramState->gis.zone.projection >= udGZPT_TransverseMercator) //TODO: Fix this list
@@ -1456,7 +1461,7 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
 
 
   pRenderContext->activeRenderTarget = 1 - pRenderContext->activeRenderTarget;
-  vcFramebuffer_Bind(pRenderContext->pFramebuffer[pRenderContext->activeRenderTarget], vcFramebufferClearOperation_All, 0x000000ff);
+  vcFramebuffer_Bind(pRenderContext->pFramebuffer[pRenderContext->activeRenderTarget], vcFramebufferClearOperation_All, 0xffff0000);
   HandleFakeInput();
 
   DrawAtmosphere(pProgramState, pRenderContext, pRenderContext->pTexture[1 - pRenderContext->activeRenderTarget], pRenderContext->pDepthTexture[1 - pRenderContext->activeRenderTarget]);
