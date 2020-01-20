@@ -10,6 +10,7 @@
 #include "vcCompass.h"
 #include "vcState.h"
 #include "vcVoxelShaders.h"
+#include "vcAtmosphereRenderer.h"
 
 #include "vcInternalModels.h"
 #include "vcSceneLayerRenderer.h"
@@ -97,6 +98,8 @@ struct vcRenderContext
   vcFramebuffer *pAuxiliaryFramebuffers[2];
   vcTexture *pAuxiliaryTextures[2];
   udUInt2 effectResolution;
+
+  vcAtmosphereRenderer *pAtmosphereRenderer;
 
   struct
   {
@@ -245,8 +248,6 @@ udResult vcRender_Init(vcState *pProgramState, vcRenderContext **ppRenderContext
   udResult result;
   vcRenderContext *pRenderContext = nullptr;
 
-  //InitModel();
-
   UD_ERROR_NULL(ppRenderContext, udR_InvalidParameter_);
 
   UD_ERROR_CHECK(vcInternalModels_Init());
@@ -317,6 +318,8 @@ udResult vcRender_Init(vcState *pProgramState, vcRenderContext **ppRenderContext
   UD_ERROR_CHECK(vcPolygonModel_CreateShaders());
   UD_ERROR_CHECK(vcImageRenderer_Init());
 
+  UD_ERROR_CHECK(vcAtmosphereRenderer_Create(&pRenderContext->pAtmosphereRenderer));
+
   UD_ERROR_IF(!vcShader_Bind(nullptr), udR_InternalError);
 
   UD_ERROR_CHECK(vcTileRenderer_Create(&pRenderContext->pTileRenderer, &pProgramState->settings));
@@ -382,6 +385,8 @@ udResult vcRender_Destroy(vcState *pProgramState, vcRenderContext **ppRenderCont
 
   UD_ERROR_CHECK(vcTileRenderer_Destroy(&pRenderContext->pTileRenderer));
   UD_ERROR_CHECK(vcFenceRenderer_Destroy(&pRenderContext->pDiagnosticFences));
+
+  UD_ERROR_CHECK(vcAtmosphereRenderer_Destroy(&pRenderContext->pAtmosphereRenderer));
 
   UD_ERROR_CHECK(vcInternalModels_Deinit());
   result = udR_Success;
@@ -1154,11 +1159,12 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
   vcRenderTerrain(pProgramState, pRenderContext);
   vcRender_TransparentPass(pProgramState, pRenderContext, renderData);
 
+  {
+    pRenderContext->activeRenderTarget = 1 - pRenderContext->activeRenderTarget;
+    vcFramebuffer_Bind(pRenderContext->pFramebuffer[pRenderContext->activeRenderTarget], vcFramebufferClearOperation_All, 0x000000ff);
 
-  pRenderContext->activeRenderTarget = 1 - pRenderContext->activeRenderTarget;
-  vcFramebuffer_Bind(pRenderContext->pFramebuffer[pRenderContext->activeRenderTarget], vcFramebufferClearOperation_All, 0x000000ff);
-
-  //DrawAtmosphere(pProgramState, pRenderContext, pRenderContext->pTexture[1 - pRenderContext->activeRenderTarget], pRenderContext->pDepthTexture[1 - pRenderContext->activeRenderTarget]);
+    vcAtmosphereRenderer_Render(pRenderContext->pAtmosphereRenderer, pProgramState, pRenderContext->pTexture[1 - pRenderContext->activeRenderTarget], pRenderContext->pDepthTexture[1 - pRenderContext->activeRenderTarget]);
+  }
 
   vcRender_FXAAPass(pProgramState, pRenderContext);
 
