@@ -1168,8 +1168,8 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
 
   vcRender_FXAAPass(pProgramState, pRenderContext);
 
-  //if (selectionBufferActive)
-   // vcRender_ApplySelectionBuffer(pProgramState, pRenderContext);
+  if (selectionBufferActive)
+    vcRender_ApplySelectionBuffer(pProgramState, pRenderContext);
 
   if (pProgramState->settings.presentation.mouseAnchor != vcAS_None && (pProgramState->pickingSuccess || pProgramState->isUsingAnchorPoint))
   {

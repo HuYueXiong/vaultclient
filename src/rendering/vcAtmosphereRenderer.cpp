@@ -186,7 +186,6 @@ udResult vcAtmosphereRenderer_Create(vcAtmosphereRenderer **ppAtmosphereRenderer
   udSprintf(&pCompleteAtmosphereShaderSource, "%s\n%s", pAtmosphereRenderer->pModel->shaderSource().c_str(), g_AtmosphereFragmentShader);
   UD_ERROR_IF(!vcShader_CreateFromText(&pAtmosphereRenderer->renderShader.pProgram, g_AtmosphereVertexShader, pCompleteAtmosphereShaderSource, vcP3UV2VertexLayout), udR_InternalError);
 
-
   vcShader_Bind(pAtmosphereRenderer->renderShader.pProgram);
   pAtmosphereRenderer->pModel->SetProgramUniforms(pAtmosphereRenderer->renderShader.pProgram->programID, 0, 1, 2, 3);
   if (do_white_balance_) {
@@ -207,6 +206,7 @@ udResult vcAtmosphereRenderer_Create(vcAtmosphereRenderer **ppAtmosphereRenderer
   *ppAtmosphereRenderer = pAtmosphereRenderer;
   result = udR_Success;
 epilogue:
+  udFree(pCompleteAtmosphereShaderSource);
   return result;
 }
 
@@ -215,6 +215,8 @@ udResult vcAtmosphereRenderer_Destroy(vcAtmosphereRenderer **ppAtmosphereRendere
   if (ppAtmosphereRenderer == nullptr || *ppAtmosphereRenderer == nullptr)
     return udR_InvalidParameter_;
 
+  delete (*ppAtmosphereRenderer)->pModel;
+  vcShader_DestroyShader(&(*ppAtmosphereRenderer)->renderShader.pProgram);
   //vcShader_DestroyShader(&(*ppCompass)->pShader);
   udFree((*ppAtmosphereRenderer));
 

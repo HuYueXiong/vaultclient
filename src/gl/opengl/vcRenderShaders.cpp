@@ -1,4 +1,4 @@
-﻿#include "gl/vcRenderShaders.h"
+#include "gl/vcRenderShaders.h"
 #include "udPlatformUtil.h"
 
 #if UDPLATFORM_IOS || UDPLATFORM_IOS_SIMULATOR || UDPLATFORM_EMSCRIPTEN
@@ -1510,8 +1510,6 @@ const char *const g_AtmosphereVertexShader = R"shader(
       v_uv = vertex.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
 }
 )shader";
-
-//const char *const g_AtmosphereUtilShader = R"shader()shader";
 
 /**
  * Copyright (c) 2017 Eric Bruneton
