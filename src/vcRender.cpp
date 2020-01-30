@@ -1161,12 +1161,17 @@ void vcRender_RenderScene(vcState *pProgramState, vcRenderContext *pRenderContex
 
   if (pProgramState->settings.presentation.mouseAnchor != vcAS_None && (pProgramState->pickingSuccess || pProgramState->isUsingAnchorPoint))
   {
-    // resolve (last frame) polygon vs. (current frame) UD here
-    udDouble3 pickPosition = vcRender_DepthToWorldPosition(pProgramState, pRenderContext, pRenderContext->previousFrameDepth);
-    if (udMagSq(pickPosition - pProgramState->camera.position) < udMagSq(pProgramState->worldMousePosCartesian - pProgramState->camera.position))
-      pProgramState->worldMousePosCartesian = pickPosition;
+    // Determine compass display position
+    udDouble3 compassPosition = pProgramState->worldAnchorPoint;
+    if (!pProgramState->isUsingAnchorPoint)
+    {
+      compassPosition = pProgramState->worldMousePosCartesian; // UD mouse position
+      udDouble3 pickPosition = vcRender_DepthToWorldPosition(pProgramState, pRenderContext, pRenderContext->previousFrameDepth);
+      if (udMagSq(pickPosition - pProgramState->camera.position) < udMagSq(pProgramState->worldMousePosCartesian - pProgramState->camera.position))
+        compassPosition = pickPosition; // Polygon mouse position
+    }
 
-    udDouble4x4 mvp = pProgramState->camera.matrices.viewProjection * udDouble4x4::translation(pProgramState->isUsingAnchorPoint ? pProgramState->worldAnchorPoint : pProgramState->worldMousePosCartesian);
+    udDouble4x4 mvp = pProgramState->camera.matrices.viewProjection * udDouble4x4::translation(compassPosition);
     vcGLState_SetFaceMode(vcGLSFM_Solid, vcGLSCM_Back);
 
     // Render highlighting any occlusion
