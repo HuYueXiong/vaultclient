@@ -1,6 +1,7 @@
 #include "vcQuadTree.h"
 #include "vcGIS.h"
 #include "gl/vcTexture.h"
+#include "udPlatformUtil.h"
 
 #define INVALID_NODE_INDEX 0xffffffff
 
@@ -127,19 +128,33 @@ void vcQuadTree_CleanupNode(vcQuadTreeNode *pNode)
   memset(pNode, 0, sizeof(vcQuadTreeNode));
 }
 
+#include "udGeoZone.h"
+#include "vcGIS.h"
+
 void vcQuadTree_CalculateNodeBounds(vcQuadTree *pQuadTree, vcQuadTreeNode *pNode)
 {
+  udDouble2 boundsMin = udDouble2::create(FLT_MAX, FLT_MAX);
+  udDouble2 boundsMax = udDouble2::create(-FLT_MAX, -FLT_MAX);
   for (int edge = 0; edge < 4; ++edge)
   {
     udDouble3 localCorner;
     vcGIS_SlippyToLocal(&pQuadTree->gisSpace, &localCorner, udInt2::create(pNode->slippyPosition.x + (edge & 1), pNode->slippyPosition.y + (edge >> 1)), pNode->slippyPosition.z);
     pNode->worldBounds[edge] = localCorner.toVector2();
+    boundsMin = udMin(boundsMin, pNode->worldBounds[edge]);
+    boundsMax = udMax(boundsMax, pNode->worldBounds[edge]);
   }
 
-  udDouble2 boundsMin = udDouble2::create(udMin(udMin(udMin(pNode->worldBounds[0].x, pNode->worldBounds[1].x), pNode->worldBounds[2].x), pNode->worldBounds[3].x),
-    udMin(udMin(udMin(pNode->worldBounds[0].y, pNode->worldBounds[1].y), pNode->worldBounds[2].y), pNode->worldBounds[3].y));
-  udDouble2 boundsMax = udDouble2::create(udMax(udMax(udMax(pNode->worldBounds[0].x, pNode->worldBounds[1].x), pNode->worldBounds[2].x), pNode->worldBounds[3].x),
-    udMax(udMax(udMax(pNode->worldBounds[0].y, pNode->worldBounds[1].y), pNode->worldBounds[2].y), pNode->worldBounds[3].y));
+  //int slippyLayerDescendAmount = 1;//udMin((MAX_SLIPPY_LEVEL - slippyTileCoord.z), gSlippyLayerDescendAmount[3]);
+  //for (int t = 0; t < 9; ++t)
+  //{
+  //  udDouble3 point = {};
+  //  udInt2 slippySampleCoord = udInt2::create((pNode->slippyPosition.x * (1 << slippyLayerDescendAmount)) + (t % 3),
+  //    (pNode->slippyPosition.y * (1 << slippyLayerDescendAmount)) + (t / 3));
+  //  vcGIS_SlippyToLocal(&pQuadTree->gisSpace, &point, slippySampleCoord, pNode->slippyPosition.z + slippyLayerDescendAmount);
+  //  pNode->worldBounds[t] = point.toVector2();
+  //  boundsMin = udMin(boundsMin, pNode->worldBounds[t]);
+  //  boundsMax = udMax(boundsMax, pNode->worldBounds[t]);
+  //}
 
   pNode->tileCenter = (boundsMax + boundsMin) * 0.5;
   pNode->tileExtents = (boundsMax - boundsMin) * 0.5;
@@ -159,12 +174,12 @@ void vcQuadTree_InitNode(vcQuadTree *pQuadTree, uint32_t slotIndex, const udInt3
 
 bool vcQuadTree_IsNodeVisible(const vcQuadTree *pQuadTree, const vcQuadTreeNode *pNode)
 {
-  return -1 < vcQuadTree_FrustumTest(pQuadTree->frustumPlanes, udDouble3::create(pNode->tileCenter, pQuadTree->quadTreeHeightOffset), udDouble3::create(pNode->tileExtents, 0.0));
+  return true;//-1 < vcQuadTree_FrustumTest(pQuadTree->frustumPlanes, udDouble3::create(pNode->tileCenter, pQuadTree->quadTreeHeightOffset), udDouble3::create(pNode->tileExtents, 0.0));
 }
 
 inline bool vcQuadTree_ShouldSubdivide(vcQuadTree *pQuadTree, double distanceMS, int depth)
 {
-  return distanceMS < (1.0 / (1 << (depth + vcTRMQToDepthModifiers[pQuadTree->pSettings->maptiles.mapQuality])));
+  return distanceMS < (1.0 / (1 << (depth)));// +vcTRMQToDepthModifiers[pQuadTree->pSettings->maptiles.mapQuality])));
 }
 
 void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeIndex, int currentDepth)
@@ -194,6 +209,8 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
   udInt2 pViewSlippyCoords;
   vcGIS_LocalToSlippy(&pQuadTree->gisSpace, &pViewSlippyCoords, pQuadTree->cameraWorldPosition, pQuadTree->slippyCoords.z + currentDepth + 1);
 
+  udInt2 mortenIndices[] = { {0, 0}, {1, 0}, {0, 1}, {1, 1} };
+
   //subdivide
   // 0 == bottom left
   // 1 == bottom right
@@ -211,6 +228,8 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
     pChildNode->parentIndex = currentNodeIndex;
     pChildNode->level = currentDepth + 1;
     pChildNode->visible = pCurrentNode->visible && vcQuadTree_IsNodeVisible(pQuadTree, pChildNode);
+    pChildNode->morten.x = pCurrentNode->morten.x | (mortenIndices[childQuadrant].x << (31 - pChildNode->level));
+    pChildNode->morten.y = pCurrentNode->morten.y | (mortenIndices[childQuadrant].y << (31 - pChildNode->level));
 
     // TODO: tile heights (DEM)
     double distanceToQuadrant;
@@ -231,8 +250,8 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
     // Flattens out lower layers, while raising levels of tiles further away.
     // This is done because of perspectiveness, we actually want a non-uniform quad tree.
     // Note: these values were just 'trial and error'ed
-    int nodeDepthToTreeDepth = pQuadTree->expectedTreeDepth - currentDepth;
-    distanceToQuadrant *= udLerp(1.0, (0.6 + 0.25 * nodeDepthToTreeDepth), udClamp(nodeDepthToTreeDepth, 0, 1));
+    //int nodeDepthToTreeDepth = pQuadTree->expectedTreeDepth - currentDepth;
+    //distanceToQuadrant *= udLerp(1.0, (0.6 + 0.25 * nodeDepthToTreeDepth), udClamp(nodeDepthToTreeDepth, 0, 1));
 
     ++pQuadTree->metaData.nodeTouchedCount;
     if (pChildNode->visible)
@@ -246,6 +265,57 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
       vcQuadTree_RecurseGenerateTree(pQuadTree, childIndex, currentDepth + 1);
     else
       ++pQuadTree->metaData.leafNodeCount;
+  }
+}
+
+
+udInt2 decodeMorten(udInt2 &m, int d)
+{
+  int mask = ~(0xffffffff - ((2 << d) - 1));
+  int shift = 31 - d;
+  return { (m.x >> shift) &mask, (m.y >> shift) &mask };
+}
+
+vcQuadTreeNode *vcQuadTree_FindNodeFromMorten(vcQuadTree *pQuadTree, vcQuadTreeNode *pNode, const udInt2 &targetMorten, int targetDepth)
+{
+  if (vcQuadTree_IsLeafNode(pNode) || pNode->level >= targetDepth)
+    return pNode;
+
+  // TODO: handle outside bounds (e.g. morten.x < 0 || morten.y < 0 || morten.x >= ?? || morten.y >= ??)
+
+  int shift = targetDepth - (pNode->level + 1);
+  udInt2 thisLevel = { (targetMorten.x >> shift) & 1, (targetMorten.y >> shift) & 1 };
+  int childIndex = thisLevel.x + thisLevel.y * 2;
+
+  vcQuadTreeNode *pChildNode = &pQuadTree->nodes.pPool[pNode->childBlockIndex + childIndex];
+  return vcQuadTree_FindNodeFromMorten(pQuadTree, pChildNode, targetMorten, targetDepth);
+}
+
+void vcQuadTree_CalculateNeighbours(vcQuadTree *pQuadTree, vcQuadTreeNode *pNode)
+{
+  if (vcQuadTree_IsLeafNode(pNode))
+  {
+    udInt2 morten = decodeMorten(pNode->morten, pNode->level);
+    vcQuadTreeNode *pRootNode = &pQuadTree->nodes.pPool[pQuadTree->rootIndex];
+
+    vcQuadTreeNode *pNeighbourUp = vcQuadTree_FindNodeFromMorten(pQuadTree, pRootNode, morten + udInt2::create(0, -1), pNode->level);
+    vcQuadTreeNode *pNeighbourRight = vcQuadTree_FindNodeFromMorten(pQuadTree, pRootNode, morten + udInt2::create(1, 0), pNode->level);
+    vcQuadTreeNode *pNeighbourDown = vcQuadTree_FindNodeFromMorten(pQuadTree, pRootNode, morten + udInt2::create(0, 1), pNode->level);
+    vcQuadTreeNode *pNeighbourLeft = vcQuadTree_FindNodeFromMorten(pQuadTree, pRootNode, morten + udInt2::create(-1, 0), pNode->level);
+
+    pNode->neighbours = 0;
+    pNode->neighbours |= 0x1 * int(pNeighbourUp->level < pNode->level);
+    pNode->neighbours |= 0x2 * int(pNeighbourRight->level < pNode->level);
+    pNode->neighbours |= 0x4 * int(pNeighbourDown->level < pNode->level);
+    pNode->neighbours |= 0x8 * int(pNeighbourLeft->level < pNode->level);
+  }
+  else
+  {
+    for (int c = 0; c < NodeChildCount; ++c)
+    {
+      vcQuadTreeNode *pChildNode = &pQuadTree->nodes.pPool[pNode->childBlockIndex + c];
+      vcQuadTree_CalculateNeighbours(pQuadTree, pChildNode);
+    }
   }
 }
 
@@ -285,6 +355,18 @@ void vcQuadTree_Reset(vcQuadTree *pQuadTree)
 uint32_t vcQuadTree_NodeIndexToBlockIndex(uint32_t nodeIndex)
 {
   return nodeIndex & ~3;
+}
+
+void vcQuadTree_InitRootBlock(vcQuadTree *pQuadTree)
+{
+  uint32_t rootBlockIndex = vcQuadTree_NodeIndexToBlockIndex(pQuadTree->rootIndex);
+  for (uint32_t c = 0; c < NodeChildCount; ++c)
+  {
+    pQuadTree->nodes.pPool[rootBlockIndex + c].parentIndex = INVALID_NODE_INDEX;
+    pQuadTree->nodes.pPool[rootBlockIndex + c].level = 0;
+  }
+
+  pQuadTree->nodes.pPool[rootBlockIndex].morten = udInt2::zero();
 }
 
 void vcQuadTree_Reroot(vcQuadTree *pQuadTree, const udInt3 &slippyCoords)
@@ -333,6 +415,8 @@ void vcQuadTree_Reroot(vcQuadTree *pQuadTree, const udInt3 &slippyCoords)
 
   pQuadTree->rootIndex = newRootIndex;
   pQuadTree->completeRerootRequired = false;
+
+  vcQuadTree_InitRootBlock(pQuadTree);
 }
 
 void vcQuadTree_CompleteReroot(vcQuadTree *pQuadTree, const udInt3 &slippyCoords)
@@ -354,6 +438,7 @@ void vcQuadTree_CompleteReroot(vcQuadTree *pQuadTree, const udInt3 &slippyCoords
   }
 
   pQuadTree->completeRerootRequired = false;
+  vcQuadTree_InitRootBlock(pQuadTree);
 }
 
 void vcQuadTree_ConditionalReroot(vcQuadTree *pQuadTree, const udInt3 &slippyCoords)
@@ -415,6 +500,9 @@ void vcQuadTree_Update(vcQuadTree *pQuadTree, const vcQuadTreeViewInfo &viewInfo
 
   vcQuadTree_ConditionalReroot(pQuadTree, viewInfo.slippyCoords);
 
+  // TODO: should this go in InitRootBlock()?
+  //pQuadTree->nodes.pPool[pQuadTree->rootIndex].morten = udInt2::zero();
+
   // Must re-check `completeRerootRequired` condition here, because complete re-rooting can fail (finite amount of nodes)
   if (!pQuadTree->completeRerootRequired)
   {
@@ -425,6 +513,8 @@ void vcQuadTree_Update(vcQuadTree *pQuadTree, const vcQuadTreeViewInfo &viewInfo
     pQuadTree->nodes.pPool[pQuadTree->rootIndex].visible = true;
 
     vcQuadTree_RecurseGenerateTree(pQuadTree, pQuadTree->rootIndex, 0);
+    vcQuadTree_Prune(pQuadTree);
+    vcQuadTree_CalculateNeighbours(pQuadTree, &pQuadTree->nodes.pPool[pQuadTree->rootIndex]);
   }
 }
 
@@ -458,7 +548,8 @@ bool vcQuadTree_ShouldFreeBlock(vcQuadTree *pQuadTree, uint32_t blockIndex)
   for (uint32_t c = 0; c < NodeChildCount; ++c)
   {
     vcQuadTreeNode *pChildNode = &pQuadTree->nodes.pPool[blockIndex + c];
-    if (pChildNode->touched || pChildNode->renderInfo.fadingIn || pChildNode->renderInfo.loadStatus == vcNodeRenderInfo::vcTLS_Downloading)
+    //|| pChildNode->renderInfo.fadingIn 
+    if (pChildNode->touched || pChildNode->renderInfo.loadStatus == vcNodeRenderInfo::vcTLS_Downloading)
       return false;
   }
 
@@ -468,36 +559,36 @@ bool vcQuadTree_ShouldFreeBlock(vcQuadTree *pQuadTree, uint32_t blockIndex)
     vcQuadTreeNode *pNode = &pQuadTree->nodes.pPool[blockIndex + c];
 
     // case #1: its a leaf node that could be being used for rendering by an ancestor
-    if (vcQuadTree_IsLeafNode(pNode) && pNode->renderInfo.pTexture)
-    {
-      uint32_t parentIndex = pNode->parentIndex;
-      while (parentIndex != INVALID_NODE_INDEX)
-      {
-        vcQuadTreeNode *pParentNode = &pQuadTree->nodes.pPool[parentIndex];
-        if (pParentNode->touched)
-        {
-          // We have an ancestor that has no texture, or is fading
-          if (!pParentNode->renderInfo.pTexture || pParentNode->renderInfo.fadingIn)
-            return false;
-
-          break;
-        }
-        else if (pParentNode->renderInfo.pTexture && !pParentNode->renderInfo.fadingIn)
-          return true;
-
-        parentIndex = pParentNode->parentIndex;
-      }
-    }
+    //if (vcQuadTree_IsLeafNode(pNode) && pNode->renderInfo.pTexture)
+    //{
+    //  uint32_t parentIndex = pNode->parentIndex;
+    //  while (parentIndex != INVALID_NODE_INDEX)
+    //  {
+    //    vcQuadTreeNode *pParentNode = &pQuadTree->nodes.pPool[parentIndex];
+    //    if (pParentNode->touched)
+    //    {
+    //      // We have an ancestor that has no texture, or is fading
+    //      if (!pParentNode->renderInfo.pTexture)// || pParentNode->renderInfo.fadingIn)
+    //        return false;
+    //
+    //      break;
+    //    }
+    //    else if (pParentNode->renderInfo.pTexture)// && !pParentNode->renderInfo.fadingIn)
+    //      return true;
+    //
+    //    parentIndex = pParentNode->parentIndex;
+    //  }
+    //}
 
     // case #2: its not a leaf node, it cannot be used for rendering BUT one of its descendents could be used for rendering
-    else if (!vcQuadTree_IsLeafNode(pNode))
-    {
-      if (!pNode->renderInfo.pTexture)
-      {
-        if (vcQuadTree_RecursiveDescendentHasRenderData(pQuadTree, pNode))
-          return false;
-      }
-    }
+    //else if (!vcQuadTree_IsLeafNode(pNode))
+    //{
+    //  if (!pNode->renderInfo.pTexture)
+    //  {
+    //    if (vcQuadTree_RecursiveDescendentHasRenderData(pQuadTree, pNode))
+    //      return false;
+    //  }
+    //}
   }
 
   return true;

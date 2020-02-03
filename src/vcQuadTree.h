@@ -24,15 +24,16 @@ struct vcNodeRenderInfo
   bool tryLoad;
   float timeoutTime; // after a failed load, tiles have a time before they will request again
 
-  vcTexture *pTexture;
+  vcTexture *pTexture; //actual texture
   int32_t width, height;
   void *pData;
 
-  bool fadingIn;
-  float transparency;
+  vcTexture *pDrawTexture; // may not own this
+  udFloat2 uvStart;
+  udFloat2 uvEnd;
 
-  // cached
-  udDouble2 center;
+  //bool fadingIn;
+  //float transparency;
 };
 
 struct vcQuadTreeNode
@@ -44,6 +45,8 @@ struct vcQuadTreeNode
   uint32_t parentIndex;
   uint32_t childBlockIndex;
   uint32_t childMask; // [1, 2, 4, 8] for each corner [bottom left, bottom right, top left, top right]
+  udInt2 morten;
+  int neighbours;
   int level;
 
   bool visible;
@@ -51,7 +54,7 @@ struct vcQuadTreeNode
   bool rendered;
 
   // cached
-  udDouble2 worldBounds[4]; // corners
+  udDouble2 worldBounds[9]; // 3x3
   udDouble2 tileCenter, tileExtents;
 
   vcNodeRenderInfo renderInfo;

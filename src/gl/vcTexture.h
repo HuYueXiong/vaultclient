@@ -11,6 +11,8 @@ enum vcTextureFormat
   vcTextureFormat_RGBA8,
   vcTextureFormat_BGRA8,
 
+  vcTextureFormat_R16,
+
   vcTextureFormat_D32F,
   vcTextureFormat_D24S8,
 

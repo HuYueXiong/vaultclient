@@ -35,6 +35,15 @@ void vcTexture_GetFormatAndPixelSize(const vcTextureFormat format, int *pPixelSi
 #endif
     pixelSize = 4;
     break;
+  case vcTextureFormat_R16:
+    textureFormat = GL_R16;
+    pixelType = GL_UNSIGNED_SHORT;
+    pixelFormat = GL_RED;
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+    glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+    glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+    break;
   case vcTextureFormat_D32F:
     textureFormat = GL_DEPTH_COMPONENT32F;
     pixelType = GL_FLOAT;
@@ -103,6 +112,16 @@ udResult vcTexture_Create(vcTexture **ppTexture, uint32_t width, uint32_t height
 
   if (hasMipmaps)
     glGenerateMipmap(GL_TEXTURE_2D);
+
+  // TODO is this needed?
+  switch (format)
+  {
+  case vcTextureFormat_R16:
+    glPixelStorei(GL_PACK_ALIGNMENT, 4);
+    break;
+  default:
+    break;
+  }
 
   if ((flags & vcTCF_AsynchronousRead) == vcTCF_AsynchronousRead)
   {
