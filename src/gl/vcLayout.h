@@ -71,8 +71,8 @@ struct vcP4C1QC2Vertex
   float corner[2];
 };
 
-const vcVertexLayoutTypes vcP3VertexLayout[] = { vcVLT_Position3 }; // tiles
-const vcVertexLayoutTypes vcUV2VertexLayout[] = { vcVLT_TextureCoords2 }; // water
+const vcVertexLayoutTypes vcP3VertexLayout[] = { vcVLT_Position3 }; // tiles (not anymore?)
+const vcVertexLayoutTypes vcUV2VertexLayout[] = { vcVLT_TextureCoords2 }; // water / tiles 
 const vcVertexLayoutTypes vcP3N3VertexLayout[] = { vcVLT_Position3, vcVLT_Normal3 }; // compass / anchor
 const vcVertexLayoutTypes vcP3UV2VertexLayout[] = { vcVLT_Position3, vcVLT_TextureCoords2 }; // screen quad
 const vcVertexLayoutTypes vcP3N3UV2VertexLayout[] = { vcVLT_Position3, vcVLT_Normal3, vcVLT_TextureCoords2 }; // polygon model

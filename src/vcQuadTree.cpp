@@ -1,6 +1,7 @@
 #include "vcQuadTree.h"
 #include "vcGIS.h"
 #include "gl/vcTexture.h"
+#include "udPlatformUtil.h"
 
 #define INVALID_NODE_INDEX 0xffffffff
 
@@ -118,6 +119,9 @@ void vcQuadTree_CleanupNode(vcQuadTreeNode *pNode)
   memset(pNode, 0, sizeof(vcQuadTreeNode));
 }
 
+#include "udGeoZone.h"
+#include "vcGIS.h"
+
 void vcQuadTree_CalculateNodeBounds(vcQuadTree *pQuadTree, vcQuadTreeNode *pNode)
 {
   udDouble3 boundsMin = udDouble3::create(FLT_MAX, FLT_MAX, FLT_MAX);
@@ -188,6 +192,8 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
   udInt2 pViewSlippyCoords;
   vcGIS_LocalToSlippy(&pQuadTree->gisSpace, &pViewSlippyCoords, pQuadTree->cameraWorldPosition, pQuadTree->slippyCoords.z + currentDepth + 1);
 
+  udInt2 mortenIndices[] = { {0, 0}, {1, 0}, {0, 1}, {1, 1} };
+
   //subdivide
   // 0 == bottom left
   // 1 == bottom right
@@ -204,6 +210,8 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
     // leave this here as we could be fixing up a re-root
     pChildNode->parentIndex = currentNodeIndex;
     pChildNode->visible = pCurrentNode->visible && vcQuadTree_IsNodeVisible(pQuadTree, pChildNode);
+    pChildNode->morten.x = pCurrentNode->morten.x | (mortenIndices[childQuadrant].x << (31 - pChildNode->level));
+    pChildNode->morten.y = pCurrentNode->morten.y | (mortenIndices[childQuadrant].y << (31 - pChildNode->level));
 
     // TODO: tile heights (DEM)
     double distanceToQuadrant = pQuadTree->cameraDistanceZeroAltitude;
@@ -224,6 +232,57 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
       vcQuadTree_RecurseGenerateTree(pQuadTree, childIndex, currentDepth + 1);
     else
       ++pQuadTree->metaData.leafNodeCount;
+  }
+}
+
+
+udInt2 decodeMorten(udInt2 &m, int d)
+{
+  int mask = ~(0xffffffff - ((2 << d) - 1));
+  int shift = 31 - d;
+  return { (m.x >> shift) &mask, (m.y >> shift) &mask };
+}
+
+vcQuadTreeNode *vcQuadTree_FindNodeFromMorten(vcQuadTree *pQuadTree, vcQuadTreeNode *pNode, const udInt2 &targetMorten, int targetDepth)
+{
+  if (vcQuadTree_IsLeafNode(pNode) || pNode->level >= targetDepth)
+    return pNode;
+
+  // TODO: handle outside bounds (e.g. morten.x < 0 || morten.y < 0 || morten.x >= ?? || morten.y >= ??)
+
+  int shift = targetDepth - (pNode->level + 1);
+  udInt2 thisLevel = { (targetMorten.x >> shift) & 1, (targetMorten.y >> shift) & 1 };
+  int childIndex = thisLevel.x + thisLevel.y * 2;
+
+  vcQuadTreeNode *pChildNode = &pQuadTree->nodes.pPool[pNode->childBlockIndex + childIndex];
+  return vcQuadTree_FindNodeFromMorten(pQuadTree, pChildNode, targetMorten, targetDepth);
+}
+
+void vcQuadTree_CalculateNeighbours(vcQuadTree *pQuadTree, vcQuadTreeNode *pNode)
+{
+  if (vcQuadTree_IsLeafNode(pNode))
+  {
+    udInt2 morten = decodeMorten(pNode->morten, pNode->level);
+    vcQuadTreeNode *pRootNode = &pQuadTree->nodes.pPool[pQuadTree->rootIndex];
+
+    vcQuadTreeNode *pNeighbourUp = vcQuadTree_FindNodeFromMorten(pQuadTree, pRootNode, morten + udInt2::create(0, -1), pNode->level);
+    vcQuadTreeNode *pNeighbourRight = vcQuadTree_FindNodeFromMorten(pQuadTree, pRootNode, morten + udInt2::create(1, 0), pNode->level);
+    vcQuadTreeNode *pNeighbourDown = vcQuadTree_FindNodeFromMorten(pQuadTree, pRootNode, morten + udInt2::create(0, 1), pNode->level);
+    vcQuadTreeNode *pNeighbourLeft = vcQuadTree_FindNodeFromMorten(pQuadTree, pRootNode, morten + udInt2::create(-1, 0), pNode->level);
+
+    pNode->neighbours = 0;
+    pNode->neighbours |= 0x1 * int(pNeighbourUp->level < pNode->level);
+    pNode->neighbours |= 0x2 * int(pNeighbourRight->level < pNode->level);
+    pNode->neighbours |= 0x4 * int(pNeighbourDown->level < pNode->level);
+    pNode->neighbours |= 0x8 * int(pNeighbourLeft->level < pNode->level);
+  }
+  else
+  {
+    for (int c = 0; c < NodeChildCount; ++c)
+    {
+      vcQuadTreeNode *pChildNode = &pQuadTree->nodes.pPool[pNode->childBlockIndex + c];
+      vcQuadTree_CalculateNeighbours(pQuadTree, pChildNode);
+    }
   }
 }
 
@@ -263,6 +322,18 @@ void vcQuadTree_Reset(vcQuadTree *pQuadTree)
 uint32_t vcQuadTree_NodeIndexToBlockIndex(uint32_t nodeIndex)
 {
   return nodeIndex & ~3;
+}
+
+void vcQuadTree_InitRootBlock(vcQuadTree *pQuadTree)
+{
+  uint32_t rootBlockIndex = vcQuadTree_NodeIndexToBlockIndex(pQuadTree->rootIndex);
+  for (uint32_t c = 0; c < NodeChildCount; ++c)
+  {
+    pQuadTree->nodes.pPool[rootBlockIndex + c].parentIndex = INVALID_NODE_INDEX;
+    pQuadTree->nodes.pPool[rootBlockIndex + c].level = 0;
+  }
+
+  pQuadTree->nodes.pPool[rootBlockIndex].morten = udInt2::zero();
 }
 
 void vcQuadTree_Reroot(vcQuadTree *pQuadTree, const udInt3 &slippyCoords)
@@ -311,6 +382,8 @@ void vcQuadTree_Reroot(vcQuadTree *pQuadTree, const udInt3 &slippyCoords)
 
   pQuadTree->rootIndex = newRootIndex;
   pQuadTree->completeRerootRequired = false;
+
+  vcQuadTree_InitRootBlock(pQuadTree);
 }
 
 void vcQuadTree_CompleteReroot(vcQuadTree *pQuadTree, const udInt3 &slippyCoords)
@@ -332,6 +405,7 @@ void vcQuadTree_CompleteReroot(vcQuadTree *pQuadTree, const udInt3 &slippyCoords
   }
 
   pQuadTree->completeRerootRequired = false;
+  vcQuadTree_InitRootBlock(pQuadTree);
 }
 
 void vcQuadTree_ConditionalReroot(vcQuadTree *pQuadTree, const udInt3 &slippyCoords)
@@ -384,6 +458,9 @@ void vcQuadTree_Update(vcQuadTree *pQuadTree, const vcQuadTreeViewInfo &viewInfo
 
   vcQuadTree_ConditionalReroot(pQuadTree, viewInfo.slippyCoords);
 
+  // TODO: should this go in InitRootBlock()?
+  //pQuadTree->nodes.pPool[pQuadTree->rootIndex].morten = udInt2::zero();
+
   // Must re-check `completeRerootRequired` condition here, because complete re-rooting can fail (finite amount of nodes)
   if (!pQuadTree->completeRerootRequired)
   {
@@ -394,6 +471,8 @@ void vcQuadTree_Update(vcQuadTree *pQuadTree, const vcQuadTreeViewInfo &viewInfo
     pQuadTree->nodes.pPool[pQuadTree->rootIndex].visible = true;
 
     vcQuadTree_RecurseGenerateTree(pQuadTree, pQuadTree->rootIndex, 0);
+    vcQuadTree_Prune(pQuadTree);
+    vcQuadTree_CalculateNeighbours(pQuadTree, &pQuadTree->nodes.pPool[pQuadTree->rootIndex]);
   }
 }
 

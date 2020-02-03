@@ -24,7 +24,7 @@ struct vcNodeRenderInfo
   bool tryLoad;
   float timeoutTime; // after a failed load, tiles have a time before they will request again
 
-  vcTexture *pTexture;
+  vcTexture *pTexture; //actual texture
   int32_t width, height;
   void *pData;
 
@@ -42,6 +42,9 @@ struct vcQuadTreeNode
   uint32_t parentIndex;
   uint32_t childBlockIndex;
   uint32_t childMask; // [1, 2, 4, 8] for each corner [bottom left, bottom right, top left, top right]
+  udInt2 morten;
+  int neighbours;
+  int level;
 
   bool visible;
   volatile bool touched;
