@@ -491,7 +491,7 @@ void main()
   {
     tileHeight = texture(u_dem0, demUV0).r;
   }
-  tileHeight *= 65536.0;
+  tileHeight *= 32768.0;
 
   vec4 h = u_view * vec4(0, 0, tileHeight, 1.0);
   vec4 baseH = u_view * vec4(0, 0, 0, 1.0);

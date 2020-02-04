@@ -25,7 +25,7 @@ vcTexture *pDEMTexture[2] = {};
 
 enum
 {
-  TileVertexResolution = 21, // This should match GPU struct size
+  TileVertexResolution = 31, // This should match GPU struct size
   TileIndexResolution = (TileVertexResolution - 1),
 
   MaxTextureUploadsPerFrame = 3,
@@ -710,15 +710,15 @@ udResult vcTileRenderer_Create(vcTileRenderer **ppTileRenderer, vcSettings *pSet
     udFile_Load(tiles[i], &pFileData, &fileLen);
     int outputSize = 3601;
     int inputSize = 3601;
-    uint16_t *pRealignedPixels = udAllocType(uint16_t, outputSize * outputSize, udAF_Zero);
-    uint16_t lastValidHeight = 0;
+    int16_t *pRealignedPixels = udAllocType(int16_t, outputSize * outputSize, udAF_Zero);
+    int16_t lastValidHeight = 0;
     for (int y = 0; y < outputSize; ++y)
     {
       for (int x = 0; x < outputSize; ++x)
       {
-        uint16_t p = ((uint16_t *)pFileData)[y * inputSize + x];
+        int16_t p = ((int16_t *)pFileData)[y * inputSize + x];
         p = ((p & 0xff00) >> 8) | ((p & 0x00ff) << 8);
-        if (p > 40000)
+        if (p == -32768)
           p = lastValidHeight;
         lastValidHeight = p;
         pRealignedPixels[y * outputSize + x] = p;
@@ -1006,6 +1006,7 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
 
   mins[0].x += 100.0; // manual correction (because its busted)
   maxs[0].y += 365.0; // manual correction (because its busted)
+
   udDouble2 ranges[] = { maxs[0] - mins[0], maxs[1] - mins[1] };
 
   bool in0Bounds = !(pNode->worldBounds[1].x < mins[0].x || pNode->worldBounds[0].x > maxs[0].x || pNode->worldBounds[1].y < mins[0].y || pNode->worldBounds[3].y > maxs[0].y);
@@ -1188,7 +1189,7 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
     vcGLState_SetViewportDepthRange(1.0f, 1.0f);
   }
 
-  for (int i = 0; i < 1; ++i)
+  for (int i = 0; i < 2; ++i)
   {
     vcShader_Bind(pTileRenderer->presentShader.pProgram);
     pTileRenderer->presentShader.everyObject.projectionMatrix = udFloat4x4::create(proj);

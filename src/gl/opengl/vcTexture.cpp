@@ -37,7 +37,7 @@ void vcTexture_GetFormatAndPixelSize(const vcTextureFormat format, int *pPixelSi
     break;
   case vcTextureFormat_R16:
     textureFormat = GL_R16;
-    pixelType = GL_UNSIGNED_SHORT;
+    pixelType = GL_SHORT;
     pixelFormat = GL_RED;
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
