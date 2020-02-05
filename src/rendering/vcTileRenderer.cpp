@@ -982,49 +982,41 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
 //  }
 //#endif
 
-  //S28E153
-  udDouble3 r0 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(-28.0, 152, 0));
-  udDouble3 r1 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(-27.0, 153, 0));
+  for (int i = 0; i < 8; ++i)
+    pTileRenderer->presentShader.everyObject.demUVs[i] = udFloat4::create(-1.0f, -1.0f, -1.0f, -1.0f);
 
-  //S28E152
-  udDouble3 r2 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(-28.0, 153.0, 0));
-  udDouble3 r3 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(-27.0, 154.0, 0));
-  // left brisbane (S28E152.hgt), right brisbane (S28E153.hgt)
-  //udDouble2 mins[] = { udDouble2::create(400781.82958118513, 6902797.6293904129), udDouble2::create(500000.00000000000, 6902394.7726541311) };
-  //udDouble2 maxs[] = { udDouble2::create(500000.00000000000, 7013171.6474111192), udDouble2::create(598325.33504640602, 7013564.7575185951) };
-
-
-  //{x = 400781.82958145085 y = 12986828.352577262 z = 0.00000000000000000 }
-
-  // left brisbane (S28E152.hgt), right brisbane (S28E153.hgt)
-  //udDouble2 mins[] = { udDouble2::create(400781.82958118513, 6902797.6293904129), udDouble2::create(500000.00000000000, 6902394.7726541311) };
-  //udDouble2 maxs[] = { udDouble2::create(500000.00000000000, 7013171.6474111192), udDouble2::create(598325.33504640602, 7013564.7575185951) };
-  //udDouble2 mins[] = { udDouble2::create(401674.66495384468, 6902394.7726660399), udDouble2::create(500000.00000000000, 6902797.6294023134) };
-  //udDouble2 maxs[] = { udDouble2::create(500000.00000000000, 6902797.6294023134), udDouble2::create(598325.33504615526, 6902394.7726660399) };
-  udDouble2 mins[] = { udDouble2::create(r0.x, r0.y), udDouble2::create(r2.x, r2.y) };
-  udDouble2 maxs[] = { udDouble2::create(r1.x, r1.y), udDouble2::create(r3.x, r3.y) };
-
-  mins[0].x += 100.0; // manual correction (because its busted)
-  maxs[0].y += 365.0; // manual correction (because its busted)
-
-  udDouble2 ranges[] = { maxs[0] - mins[0], maxs[1] - mins[1] };
-
-  bool in0Bounds = !(pNode->worldBounds[1].x < mins[0].x || pNode->worldBounds[0].x > maxs[0].x || pNode->worldBounds[1].y < mins[0].y || pNode->worldBounds[3].y > maxs[0].y);
-  bool in1Bounds = !(pNode->worldBounds[1].x < mins[1].x || pNode->worldBounds[0].x > maxs[1].x || pNode->worldBounds[1].y < mins[1].y || pNode->worldBounds[3].y > maxs[1].y);
-  if (!in0Bounds && !in1Bounds)
-    return true;
-
+  //S28E152, S28E153
+  // bottom left corners
+  udDouble2 latLongs[] = { udDouble2::create(-28.0, 152.0), udDouble2::create(-28.0, 153.0) };
+  bool rejectTile = true;
   for (int d = 0; d < 2; ++d)
   {
+    udDouble3 r0 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(latLongs[d] + udDouble2::create(0.0, 0.0), 0));
+    udDouble3 r1 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(latLongs[d] + udDouble2::create(1.0, 0.0), 0));
+    udDouble3 r2 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(latLongs[d] + udDouble2::create(0.0, 1.0), 0));
+    udDouble3 r3 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(latLongs[d] + udDouble2::create(1.0, 1.0), 0));
+  
+    udDouble3 min = udMin(udMin(udMin(r0, r1), r2), r3);
+    udDouble3 max = udMax(udMax(udMax(r0, r1), r2), r3);
+  
+    udDouble3 range = max - min;
+    bool inBounds = !(pNode->worldBounds[1].x < min.x || pNode->worldBounds[0].x > max.x || pNode->worldBounds[1].y < min.y || pNode->worldBounds[3].y > max.y);
+    if (!inBounds)
+      continue;
+  
+    rejectTile = false;
     for (int t = 0; t < 4; ++t)
     {
-      double u2 = (pNode->worldBounds[t].x - mins[d].x) / ranges[d].x;
-      double v2 = (pNode->worldBounds[t].y - mins[d].y) / ranges[d].y;
-
-      pTileRenderer->presentShader.everyObject.demUVs[d * 4 + t].x = float(u2);
-      pTileRenderer->presentShader.everyObject.demUVs[d * 4 + t].y = float(1.0 - v2);
+      double u = udClamp((pNode->worldBounds[t].x - min.x) / range.x, 0.0, 1.0);
+      double v = udClamp((pNode->worldBounds[t].y - min.y) / range.y, 0.0, 1.0);
+  
+      pTileRenderer->presentShader.everyObject.demUVs[d * 4 + t].x = float(u);
+      pTileRenderer->presentShader.everyObject.demUVs[d * 4 + t].y = float(1.0 - v);
     }
   }
+  
+  if (rejectTile)
+    return true;
 
   pTileRenderer->presentShader.everyObject.colourUV = udFloat4::create(
     pNode->renderInfo.uvStart.x,
@@ -1116,8 +1108,8 @@ bool vcTileRenderer_RecursiveBuildRenderQueue(vcTileRenderer *pTileRenderer, vcQ
     //if (!pNode->renderInfo.pTexture && canParentDraw)//(!vcTileRenderer_IsRootNode(pTileRenderer, pNode) && canParentDraw))
     //  return false;
 
-    //if (!vcTileRenderer_NodeHasValidBounds(pNode))
-    //  return false;
+    if (!vcTileRenderer_NodeHasValidBounds(pNode))
+      return false;
 
     pTileRenderer->pRenderQueue->at(pNode->level).push_back(pNode);
   }
@@ -1189,7 +1181,7 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
     vcGLState_SetViewportDepthRange(1.0f, 1.0f);
   }
 
-  for (int i = 0; i < 2; ++i)
+  for (int i = 0; i < 1; ++i)
   {
     vcShader_Bind(pTileRenderer->presentShader.pProgram);
     pTileRenderer->presentShader.everyObject.projectionMatrix = udFloat4x4::create(proj);

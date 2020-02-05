@@ -174,7 +174,7 @@ void vcQuadTree_InitNode(vcQuadTree *pQuadTree, uint32_t slotIndex, const udInt3
 
 bool vcQuadTree_IsNodeVisible(const vcQuadTree *pQuadTree, const vcQuadTreeNode *pNode)
 {
-  return true;//-1 < vcQuadTree_FrustumTest(pQuadTree->frustumPlanes, udDouble3::create(pNode->tileCenter, pQuadTree->quadTreeHeightOffset), udDouble3::create(pNode->tileExtents, 0.0));
+  return -1 < vcQuadTree_FrustumTest(pQuadTree->frustumPlanes, udDouble3::create(pNode->tileCenter, pQuadTree->quadTreeHeightOffset), udDouble3::create(pNode->tileExtents, 0.0));
 }
 
 inline bool vcQuadTree_ShouldSubdivide(vcQuadTree *pQuadTree, double distanceMS, int depth)
