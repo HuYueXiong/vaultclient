@@ -38,9 +38,10 @@ struct vcTexture
   vcTextureCreationFlags flags;
 
   GLuint id;
+  GLenum target;
 
   vcTextureFormat format;
-  int width, height;
+  int width, height, depth; // depth may be unused for certain texture types
 
   // Optional if the texture is configured with the `vcTCF_AsynchronousRead` flag
   // Provides asynchronous transfer. Internally ping pongs between these between Begin()/End() calls

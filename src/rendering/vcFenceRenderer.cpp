@@ -71,11 +71,11 @@ udResult vcFenceRenderer_Init()
 
   UD_ERROR_IF(gRefCount != 1, udR_Success);
 
-  UD_ERROR_IF(!vcTexture_CreateFromFilename(&gArrowTexture, "asset://assets/textures/fenceArrow.png", nullptr, nullptr, vcTFM_Linear, true), udR_InternalError);
-  UD_ERROR_IF(!vcTexture_CreateFromFilename(&gGlowTexture, "asset://assets/textures/fenceGlow.png", nullptr, nullptr, vcTFM_Linear, true), udR_InternalError);
-  UD_ERROR_IF(!vcTexture_CreateFromFilename(&gDiagonalTexture, "asset://assets/textures/fenceDiagonal.png", nullptr, nullptr, vcTFM_Linear, true), udR_InternalError);
+  UD_ERROR_IF(!vcTexture_CreateFromFilename(&gArrowTexture, "asset://assets/textures/fenceArrow.png", nullptr, nullptr, vcTextureFormat_RGBA8, vcTFM_Linear, true), udR_InternalError);
+  UD_ERROR_IF(!vcTexture_CreateFromFilename(&gGlowTexture, "asset://assets/textures/fenceGlow.png", nullptr, nullptr, vcTextureFormat_RGBA8, vcTFM_Linear, true), udR_InternalError);
+  UD_ERROR_IF(!vcTexture_CreateFromFilename(&gDiagonalTexture, "asset://assets/textures/fenceDiagonal.png", nullptr, nullptr, vcTextureFormat_RGBA8, vcTFM_Linear, true), udR_InternalError);
 
-  UD_ERROR_CHECK(vcTexture_Create(&gSolidTexture, 1, 1, whitePixel));
+  UD_ERROR_CHECK(vcTexture_Create(&gSolidTexture, 1, 1, 1, whitePixel));
 
   result = udR_Success;
 

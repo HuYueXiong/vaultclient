@@ -135,7 +135,7 @@ void vcModals_SetTileTexture(void *pProgramStatePtr)
     udFree(pProgramState->tileModal.pImageData);
 
     if (pData)
-      vcTexture_Create(&pProgramState->tileModal.pServerIcon, width, height, pData, vcTextureFormat_RGBA8, vcTFM_Linear, false, vcTWM_Repeat, vcTCF_None, 0);
+      vcTexture_Create(&pProgramState->tileModal.pServerIcon, width, height, 1, pData, vcTextureType_Texture2D, vcTextureFormat_RGBA8, vcTFM_Linear, false, vcTWM_Repeat, vcTCF_None, 0);
 
     stbi_image_free(pData);
     pProgramState->tileModal.loadStatus = 0;

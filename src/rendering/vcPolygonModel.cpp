@@ -381,7 +381,7 @@ udResult vcPolygonModel_CreateFromOBJ(vcPolygonModel **ppPolygonModel, const cha
       UD_ERROR_SET(udR_Unsupported);
 
     const char *pTextureFilepath = udTempStr("%s%s", pOBJReader->basePath.GetPath(), pMaterial->map_Kd);
-    vcTexture_AsyncCreateFromFilename(&pMesh->material.pTexture, pWorkerPool, pTextureFilepath, vcTFM_Linear, false, vcTWM_Repeat, MaxTextureSize);
+    vcTexture_AsyncCreateFromFilename(&pMesh->material.pTexture, pWorkerPool, pTextureFilepath, vcTextureFormat_RGBA8, vcTFM_Linear, false, vcTWM_Repeat, MaxTextureSize);
    //pPolygonModel->assetLoadRemaining++; // texture
 
     AsyncPolygonModelLoadMeshInfo *pLoadInfo = udAllocType(AsyncPolygonModelLoadMeshInfo, 1, udAF_Zero);
@@ -557,7 +557,7 @@ udResult vcPolygonModel_CreateShaders()
   UD_ERROR_IF(!vcShader_CreateFromText(&pPolygonShader->pShader, g_PolygonP3N3UV2VertexShader, g_DepthOnly_FragmentShader, vcP3N3UV2VertexLayout), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetConstantBuffer(&pPolygonShader->pEveryObjectConstantBuffer, pPolygonShader->pShader, "u_EveryObject", sizeof(vcPolygonModelShader::everyObject)), udR_InternalError);
 
-  UD_ERROR_CHECK(vcTexture_Create(&pWhiteTexture, 1, 1, &WhitePixel));
+  UD_ERROR_CHECK(vcTexture_Create(&pWhiteTexture, 1, 1, 1, &WhitePixel));
 
   result = udR_Success;
 

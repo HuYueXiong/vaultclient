@@ -637,7 +637,7 @@ void vcConvert_ShowUI(vcState *pProgramState)
             int comp;
             stbi_uc *pImg = stbi_load_from_memory(pData, (int)dataSize, &pSelectedJob->watermark.width, &pSelectedJob->watermark.height, &comp, 4);
 
-            vcTexture_Create(&pSelectedJob->watermark.pTexture, pSelectedJob->watermark.width, pSelectedJob->watermark.height, pImg);
+            vcTexture_Create(&pSelectedJob->watermark.pTexture, pSelectedJob->watermark.width, pSelectedJob->watermark.height, 1, pImg);
 
             stbi_image_free(pImg);
           }

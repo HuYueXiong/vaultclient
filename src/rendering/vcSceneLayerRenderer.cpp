@@ -23,7 +23,7 @@ udResult vcSceneLayerRenderer_Create(vcSceneLayerRenderer **ppSceneLayerRenderer
   UD_ERROR_CHECK(vcSceneLayer_Create(&pSceneLayerRenderer->pSceneLayer, pWorkerThreadPool, pSceneLayerURL));
   UD_ERROR_CHECK(vcSceneLayer_LoadNode(pSceneLayerRenderer->pSceneLayer, &pSceneLayerRenderer->pSceneLayer->root)); // load root data now
 
-  UD_ERROR_CHECK(vcTexture_Create(&pSceneLayerRenderer->pEmptyTexture, 1, 1, grayPixel));
+  UD_ERROR_CHECK(vcTexture_Create(&pSceneLayerRenderer->pEmptyTexture, 1, 1, 1, grayPixel));
 
   *ppSceneLayerRenderer = pSceneLayerRenderer;
   pSceneLayerRenderer = nullptr;

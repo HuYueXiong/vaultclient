@@ -124,7 +124,7 @@ bool ImGuiGL_CreateFontsTexture()
 
   io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);   // Load as RGBA 32-bits for OpenGL3 demo because it is more likely to be compatible with user's existing shader.
 
-  vcTexture_Create(&g_pFontTexture, width, height, pixels);
+  vcTexture_Create(&g_pFontTexture, width, height, 1, pixels);
 
   // Store our identifier
   io.Fonts->TexID = g_pFontTexture;

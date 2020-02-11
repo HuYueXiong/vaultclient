@@ -146,45 +146,25 @@ const char kAtmosphereShader[] = R"(
       return sun_irradiance * SUN_SPECTRAL_RADIANCE_TO_LUMINANCE;
     })";
 
-/*
-<p>We also need functions to allocate the precomputed textures on GPU:
-*/
-
-GLuint NewTexture2d(int width, int height) {
-  GLuint texture;
-  glGenTextures(1, &texture);
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, texture);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-  // 16F precision for the transmittance gives artifacts.
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0,
-      GL_RGBA, GL_FLOAT, NULL);
-  return texture;
-}
-
-GLuint NewTexture3d(int width, int height, int depth, GLenum format,
-    bool half_precision) {
-  GLuint texture;
-  glGenTextures(1, &texture);
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_3D, texture);
-  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-  GLenum internal_format = format == GL_RGBA ?
-      (half_precision ? GL_RGBA16F : GL_RGBA32F) :
-      (half_precision ? GL_RGB16F : GL_RGB32F);
-  glTexImage3D(GL_TEXTURE_3D, 0, internal_format, width, height, depth, 0,
-      format, GL_FLOAT, NULL);
-  return texture;
-}
+//GLuint NewTexture3d(int width, int height, int depth, GLenum format,
+//    bool half_precision) {
+//  GLuint texture;
+//  glGenTextures(1, &texture);
+//  glActiveTexture(GL_TEXTURE0);
+//  glBindTexture(GL_TEXTURE_3D, texture);
+//  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+//  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+//  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+//  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+//  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+//  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+//  GLenum internal_format = format == GL_RGBA ?
+//      (half_precision ? GL_RGBA16F : GL_RGBA32F) :
+//      (half_precision ? GL_RGB16F : GL_RGB32F);
+//  glTexImage3D(GL_TEXTURE_3D, 0, internal_format, width, height, depth, 0,
+//      format, GL_FLOAT, NULL);
+//  return texture;
+//}
 
 
 /*
@@ -1676,16 +1656,15 @@ IrradianceSpectrum GetSunAndSkyIrradiance(
   };
 
   // Allocate the precomputed textures, but don't precompute them yet.
-  transmittance_texture_ = NewTexture2d(
-      TRANSMITTANCE_TEXTURE_WIDTH, TRANSMITTANCE_TEXTURE_HEIGHT);
-  scattering_texture_ = NewTexture3d(
-      SCATTERING_TEXTURE_WIDTH,
-      SCATTERING_TEXTURE_HEIGHT,
-      SCATTERING_TEXTURE_DEPTH,
-      combine_scattering_textures || !rgb_format_supported_ ? GL_RGBA : GL_RGB,
-      half_precision);
-  irradiance_texture_ = NewTexture2d(
-      IRRADIANCE_TEXTURE_WIDTH, IRRADIANCE_TEXTURE_HEIGHT);
+  vcTexture_Create(&pTransmittance_texture_, TRANSMITTANCE_TEXTURE_WIDTH, TRANSMITTANCE_TEXTURE_HEIGHT, 1, nullptr, vcTextureType_Texture2D, vcTextureFormat_RGBA32F, vcTFM_Linear, false, vcTWM_Clamp);
+  vcTexture_Create(&pIrradiance_texture_, IRRADIANCE_TEXTURE_WIDTH, IRRADIANCE_TEXTURE_HEIGHT, 1, nullptr, vcTextureType_Texture2D, vcTextureFormat_RGBA32F, vcTFM_Linear, false, vcTWM_Clamp);
+  vcTexture_Create(&pScattering_texture_, SCATTERING_TEXTURE_WIDTH, SCATTERING_TEXTURE_HEIGHT, SCATTERING_TEXTURE_DEPTH, nullptr, vcTextureType_Texture3D, vcTextureFormat_RGBA16F, vcTFM_Linear, false, vcTWM_Clamp);
+  //scattering_texture_ = NewTexture3d(
+  //    SCATTERING_TEXTURE_WIDTH,
+  //    SCATTERING_TEXTURE_HEIGHT,
+  //    SCATTERING_TEXTURE_DEPTH,
+  //    combine_scattering_textures || !rgb_format_supported_ ? GL_RGBA : GL_RGB,
+  //    half_precision);
 }
 
 /*
@@ -1693,9 +1672,9 @@ IrradianceSpectrum GetSunAndSkyIrradiance(
 */
 
 Model::~Model() {
-  glDeleteTextures(1, &transmittance_texture_);
-  glDeleteTextures(1, &scattering_texture_);
-  glDeleteTextures(1, &irradiance_texture_);
+  vcTexture_Destroy(&pTransmittance_texture_);
+  vcTexture_Destroy(&pIrradiance_texture_);
+  vcTexture_Destroy(&pScattering_texture_);
 }
 
 bool Model::LoadPrecomputedTextures()
@@ -1704,25 +1683,26 @@ bool Model::LoadPrecomputedTextures()
 
   if (udFile_Load("asset://assets/data/transmittance.dat", &pPixels) != udR_Success)
     return false;
-  glBindTexture(GL_TEXTURE_2D, transmittance_texture_);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, TRANSMITTANCE_TEXTURE_WIDTH, TRANSMITTANCE_TEXTURE_HEIGHT, 0, GL_RGB, GL_FLOAT, pPixels);
-  udFree(pPixels);
+  vcTexture_UploadPixels(pTransmittance_texture_, pPixels, TRANSMITTANCE_TEXTURE_WIDTH, TRANSMITTANCE_TEXTURE_HEIGHT, 1, vcTextureFormat_RGB32F);
 
+  //glBindTexture(GL_TEXTURE_2D, transmittance_texture_);
+  //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, TRANSMITTANCE_TEXTURE_WIDTH, TRANSMITTANCE_TEXTURE_HEIGHT, 0, GL_RGB, GL_FLOAT, pPixels);
+  udFree(pPixels);
+  
   if (udFile_Load("asset://assets/data/irradiance.dat", &pPixels) != udR_Success)
     return false;
-  glBindTexture(GL_TEXTURE_2D, irradiance_texture_);
-  glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, IRRADIANCE_TEXTURE_WIDTH, IRRADIANCE_TEXTURE_HEIGHT, 0, GL_RGB, GL_FLOAT, pPixels);
+  vcTexture_UploadPixels(pIrradiance_texture_, pPixels, IRRADIANCE_TEXTURE_WIDTH, IRRADIANCE_TEXTURE_HEIGHT, 1, vcTextureFormat_RGB32F);
+  //glBindTexture(GL_TEXTURE_2D, irradiance_texture_);
+  //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, IRRADIANCE_TEXTURE_WIDTH, IRRADIANCE_TEXTURE_HEIGHT, 0, GL_RGB, GL_FLOAT, pPixels);
   udFree(pPixels);
-
+  
   if (udFile_Load("asset://assets/data/scattering.dat", &pPixels) != udR_Success)
     return false;
-  glBindTexture(GL_TEXTURE_3D, scattering_texture_);
-  glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA16F, SCATTERING_TEXTURE_WIDTH, SCATTERING_TEXTURE_HEIGHT, SCATTERING_TEXTURE_DEPTH, 0, GL_RGBA, GL_HALF_FLOAT, pPixels);
+  vcTexture_UploadPixels(pScattering_texture_, pPixels, SCATTERING_TEXTURE_WIDTH, SCATTERING_TEXTURE_HEIGHT, SCATTERING_TEXTURE_DEPTH);
+  //glBindTexture(GL_TEXTURE_3D, scattering_texture_);
+  //glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA16F, SCATTERING_TEXTURE_WIDTH, SCATTERING_TEXTURE_HEIGHT, SCATTERING_TEXTURE_DEPTH, 0, GL_RGBA, GL_HALF_FLOAT, pPixels);
   udFree(pPixels);
-
-  glBindTexture(GL_TEXTURE_3D, 0);
-  glBindTexture(GL_TEXTURE_2D, 0);
-  VERIFY_GL();
+  
   return true;
 } 
 
@@ -1734,38 +1714,6 @@ std::string Model::GetShaderDefinitions()
     (precompute_illuminance ? "" : "#define RADIANCE_API_ENABLED\n") +
     kAtmosphereShader;
   return shader;
-}
-
-/*
-<p>The <code>SetProgramUniforms</code> method is straightforward: it simply
-binds the precomputed textures to the specified texture units, and then sets
-the corresponding uniforms in the user provided program to the index of these
-texture units.
-*/
-
-void Model::SetProgramUniforms(
-  GLuint program,
-  GLuint transmittance_texture_unit,
-  GLuint scattering_texture_unit,
-  GLuint irradiance_texture_unit,
-  GLuint single_mie_scattering_texture_unit) const {
-  glActiveTexture(GL_TEXTURE0 + transmittance_texture_unit);
-  glBindTexture(GL_TEXTURE_2D, transmittance_texture_);
-  glUniform1i(glGetUniformLocation(program, "transmittance_texture"),
-    transmittance_texture_unit);
-
-  VERIFY_GL();
-  glActiveTexture(GL_TEXTURE0 + scattering_texture_unit);
-  glBindTexture(GL_TEXTURE_3D, scattering_texture_);
-  glUniform1i(glGetUniformLocation(program, "scattering_texture"),
-    scattering_texture_unit);
-  VERIFY_GL();
-  glActiveTexture(GL_TEXTURE0 + irradiance_texture_unit);
-  glBindTexture(GL_TEXTURE_2D, irradiance_texture_);
-  glUniform1i(glGetUniformLocation(program, "irradiance_texture"),
-    irradiance_texture_unit);
-
-  VERIFY_GL();
 }
 
 /*

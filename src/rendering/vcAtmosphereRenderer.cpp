@@ -10,6 +10,8 @@
 #include "udPlatform.h"
 #include "udStringUtil.h"
 
+#include "gl/vcMesh.h"
+
 #include "atmosphere/model.h"
 
 struct vcAtmosphereRenderer
@@ -19,6 +21,9 @@ struct vcAtmosphereRenderer
   struct
   {
     vcShader *pProgram;
+    vcShaderSampler *uniform_transmittance;
+    vcShaderSampler *uniform_scattering;
+    vcShaderSampler *uniform_irradiance;
     vcShaderSampler *uniform_sceneColour;
     vcShaderSampler *uniform_sceneDepth;
     vcShaderConstantBuffer *uniform_vertParams;
@@ -196,17 +201,18 @@ udResult vcAtmosphereRenderer_Create(vcAtmosphereRenderer **ppAtmosphereRenderer
     use_combined_textures_, use_half_precision_);
   pAtmosphereRenderer->pModel->LoadPrecomputedTextures();
 
-
   udSprintf(&pCompleteAtmosphereShaderSource, "%s\n%s", g_AtmosphereFragmentShader, pAtmosphereRenderer->pModel->GetShaderDefinitions().c_str());
   UD_ERROR_IF(!vcShader_CreateFromText(&pAtmosphereRenderer->renderShader.pProgram, g_AtmosphereVertexShader, pCompleteAtmosphereShaderSource, vcP3UV2VertexLayout), udR_InternalError);
 
   vcShader_Bind(pAtmosphereRenderer->renderShader.pProgram);
+  UD_ERROR_IF(!vcShader_GetSamplerIndex(&pAtmosphereRenderer->renderShader.uniform_transmittance, pAtmosphereRenderer->renderShader.pProgram, "transmittance_texture"), udR_InternalError);
+  UD_ERROR_IF(!vcShader_GetSamplerIndex(&pAtmosphereRenderer->renderShader.uniform_scattering, pAtmosphereRenderer->renderShader.pProgram, "scattering_texture"), udR_InternalError);
+  UD_ERROR_IF(!vcShader_GetSamplerIndex(&pAtmosphereRenderer->renderShader.uniform_irradiance, pAtmosphereRenderer->renderShader.pProgram, "irradiance_texture"), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetSamplerIndex(&pAtmosphereRenderer->renderShader.uniform_sceneColour, pAtmosphereRenderer->renderShader.pProgram, "u_sceneColour"), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetSamplerIndex(&pAtmosphereRenderer->renderShader.uniform_sceneDepth, pAtmosphereRenderer->renderShader.pProgram, "u_sceneDepth"), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetConstantBuffer(&pAtmosphereRenderer->renderShader.uniform_vertParams, pAtmosphereRenderer->renderShader.pProgram, "u_vertParams", sizeof(pAtmosphereRenderer->renderShader.vertParams)), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetConstantBuffer(&pAtmosphereRenderer->renderShader.uniform_fragParams, pAtmosphereRenderer->renderShader.pProgram, "u_fragParams", sizeof(pAtmosphereRenderer->renderShader.fragParams)), udR_InternalError);
 
-  pAtmosphereRenderer->pModel->SetProgramUniforms(pAtmosphereRenderer->renderShader.pProgram->programID, 0, 1, 2, 3);
   if (do_white_balance_) {
     atmosphere::Model::ConvertSpectrumToLinearSrgb(wavelengths, solar_irradiance,
       &white_point_r, &white_point_g, &white_point_b);
@@ -221,8 +227,6 @@ udResult vcAtmosphereRenderer_Create(vcAtmosphereRenderer **ppAtmosphereRenderer
   pAtmosphereRenderer->renderShader.fragParams.white_point.z = (float)white_point_b;
   pAtmosphereRenderer->renderShader.fragParams.sun_size.x = (float)udTan(kSunAngularRadius);
   pAtmosphereRenderer->renderShader.fragParams.sun_size.y = (float)udCos(kSunAngularRadius);
-
- //pAtmosphereRenderer->pModel->SetProgramUniforms(pAtmosphereRenderer->renderShader.pProgram->programID, 0, 1, 2, 3);
 
   *ppAtmosphereRenderer = pAtmosphereRenderer;
   result = udR_Success;
@@ -250,8 +254,6 @@ bool vcAtmosphereRenderer_Render(vcAtmosphereRenderer *pAtmosphereRenderer, vcSt
   vcAtmosphereRenderer_HandleFakeInput(pAtmosphereRenderer);
 
   vcShader_Bind(pAtmosphereRenderer->renderShader.pProgram);
-  pAtmosphereRenderer->pModel->SetProgramUniforms(pAtmosphereRenderer->renderShader.pProgram->programID, 0, 1, 2, 3);
-
   udDouble3 earthCenter = pProgramState->camera.position;
 
   if (!pProgramState->gis.isProjected || pProgramState->gis.zone.projection >= udGZPT_TransverseMercator) //TODO: Fix this list
@@ -292,17 +294,16 @@ bool vcAtmosphereRenderer_Render(vcAtmosphereRenderer *pAtmosphereRenderer, vcSt
   pAtmosphereRenderer->renderShader.fragParams.sun_direction.y = (float)(udSin(sun_azimuth_angle_radians_) * udSin(sun_zenith_angle_radians_));
   pAtmosphereRenderer->renderShader.fragParams.sun_direction.z = (float)udCos(sun_zenith_angle_radians_);
 
-  vcShader_BindTexture(pAtmosphereRenderer->renderShader.pProgram, pSceneColour, 4, pAtmosphereRenderer->renderShader.uniform_sceneColour);
-  vcShader_BindTexture(pAtmosphereRenderer->renderShader.pProgram, pSceneDepth, 5, pAtmosphereRenderer->renderShader.uniform_sceneDepth);
+  vcShader_BindTexture(pAtmosphereRenderer->renderShader.pProgram, pAtmosphereRenderer->pModel->pTransmittance_texture_, 0, pAtmosphereRenderer->renderShader.uniform_transmittance);
+  vcShader_BindTexture(pAtmosphereRenderer->renderShader.pProgram, pAtmosphereRenderer->pModel->pScattering_texture_, 1, pAtmosphereRenderer->renderShader.uniform_scattering);
+  vcShader_BindTexture(pAtmosphereRenderer->renderShader.pProgram, pAtmosphereRenderer->pModel->pIrradiance_texture_, 2, pAtmosphereRenderer->renderShader.uniform_irradiance);
+  vcShader_BindTexture(pAtmosphereRenderer->renderShader.pProgram, pSceneColour, 3, pAtmosphereRenderer->renderShader.uniform_sceneColour);
+  vcShader_BindTexture(pAtmosphereRenderer->renderShader.pProgram, pSceneDepth, 4, pAtmosphereRenderer->renderShader.uniform_sceneDepth);
 
   vcShader_BindConstantBuffer(pAtmosphereRenderer->renderShader.pProgram, pAtmosphereRenderer->renderShader.uniform_vertParams, &pAtmosphereRenderer->renderShader.vertParams, sizeof(pAtmosphereRenderer->renderShader.vertParams));
   vcShader_BindConstantBuffer(pAtmosphereRenderer->renderShader.pProgram, pAtmosphereRenderer->renderShader.uniform_fragParams, &pAtmosphereRenderer->renderShader.fragParams, sizeof(pAtmosphereRenderer->renderShader.fragParams));
 
-  //glBindVertexArray(full_screen_quad_vao_);
-  //glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
   vcMesh_Render(gInternalMeshes[vcInternalMeshType_ScreenQuad]);
-  glBindVertexArray(0);
-
   return result;
 }
 

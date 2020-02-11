@@ -553,7 +553,7 @@ void vcMain_MainLoop(vcState *pProgramState)
         int comp;
         stbi_uc *pImg = stbi_load_from_memory((stbi_uc*)pFileData, (int)fileLen, &pProgramState->image.width, &pProgramState->image.height, &comp, 4);
 
-        vcTexture_Create(&pProgramState->image.pImage, pProgramState->image.width, pProgramState->image.height, pImg);
+        vcTexture_Create(&pProgramState->image.pImage, pProgramState->image.width, pProgramState->image.height, 1, pImg);
 
         stbi_image_free(pImg);
       }
@@ -892,7 +892,7 @@ int main(int argc, char **args)
   vcTexture_AsyncCreateFromFilename(&programState.pCompanyLogo, programState.pWorkerPool, "asset://assets/textures/logo.png");
   vcTexture_AsyncCreateFromFilename(&programState.pUITexture, programState.pWorkerPool, "asset://assets/textures/uiDark24.png");
 
-  vcTexture_Create(&programState.pWhiteTexture, 1, 1, &WhitePixel);
+  vcTexture_Create(&programState.pWhiteTexture, 1, 1, 1, &WhitePixel);
 
   vcTexture_CreateFromMemory(&programState.pCompanyWatermark, (void *)logoData, logoDataSize);
 

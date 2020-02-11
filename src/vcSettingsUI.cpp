@@ -496,7 +496,7 @@ void vcSettingsUI_Show(vcState *pProgramState)
                 int comp;
                 stbi_uc *pImg = stbi_load_from_memory(pData, (int)dataSize, &pProgramState->settings.convertdefaults.watermark.width, &pProgramState->settings.convertdefaults.watermark.height, &comp, 4);
 
-                vcTexture_Create(&pProgramState->settings.convertdefaults.watermark.pTexture, pProgramState->settings.convertdefaults.watermark.width, pProgramState->settings.convertdefaults.watermark.height, pImg);
+                vcTexture_Create(&pProgramState->settings.convertdefaults.watermark.pTexture, pProgramState->settings.convertdefaults.watermark.width, pProgramState->settings.convertdefaults.watermark.height, 1, pImg);
 
                 stbi_image_free(pImg);
               }

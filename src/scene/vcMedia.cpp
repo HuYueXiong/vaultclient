@@ -167,7 +167,7 @@ void vcMedia::AddToScene(vcState *pProgramState, vcRenderData *pRenderData)
         {
           vcTexture_Destroy(&m_image.pTexture);
 
-          if (vcTexture_Create(&m_image.pTexture, width, height, pData, vcTextureFormat_RGBA8) != udR_Success)
+          if (vcTexture_Create(&m_image.pTexture, width, height, 1, pData, vcTextureType_Texture2D, vcTextureFormat_RGBA8) != udR_Success)
             m_loadStatus = vcSLS_Failed;
         }
 

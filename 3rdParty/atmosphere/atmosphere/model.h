@@ -149,11 +149,13 @@ parameter):
 #ifndef ATMOSPHERE_MODEL_H_
 #define ATMOSPHERE_MODEL_H_
 
-#include "gl/opengl/vcOpenGL.h"
 #include <array>
 #include <functional>
 #include <string>
 #include <vector>
+
+#include "gl/vcTexture.h"
+#include "gl/vcShader.h"
 
 namespace atmosphere {
 
@@ -285,13 +287,6 @@ class Model {
   std::string GetShaderDefinitions();
   bool LoadPrecomputedTextures();
 
-  void SetProgramUniforms(
-      GLuint program,
-      GLuint transmittance_texture_unit,
-      GLuint scattering_texture_unit,
-      GLuint irradiance_texture_unit,
-      GLuint optional_single_mie_scattering_texture_unit = 0) const;
-
   // Utility method to convert a function of the wavelength to linear sRGB.
   // 'wavelengths' and 'spectrum' must have the same size. The integral of
   // 'spectrum' times each CIE_2_DEG_COLOR_MATCHING_FUNCTIONS (and times
@@ -306,29 +301,19 @@ class Model {
   static constexpr double kLambdaG = 550.0;
   static constexpr double kLambdaB = 440.0;
 
+  // exposed
+  vcTexture *pTransmittance_texture_;
+  vcTexture *pScattering_texture_;
+  vcTexture *pIrradiance_texture_;
+
  private:
   typedef std::array<double, 3> vec3;
   typedef std::array<float, 9> mat3;
-
-  void Precompute(
-      GLuint fbo,
-      GLuint delta_irradiance_texture,
-      GLuint delta_rayleigh_scattering_texture,
-      GLuint delta_mie_scattering_texture,
-      GLuint delta_scattering_density_texture,
-      GLuint delta_multiple_scattering_texture,
-      const vec3& lambdas,
-      const mat3& luminance_from_radiance,
-      bool blend,
-      unsigned int num_scattering_orders);
 
   unsigned int num_precomputed_wavelengths_;
   bool half_precision_;
   bool rgb_format_supported_;
   std::function<std::string(const vec3 &)> glsl_header_factory_;
-  GLuint transmittance_texture_;
-  GLuint scattering_texture_;
-  GLuint irradiance_texture_;
 };
 
 }  // namespace atmosphere
