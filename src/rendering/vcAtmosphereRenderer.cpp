@@ -196,7 +196,8 @@ udResult vcAtmosphereRenderer_Create(vcAtmosphereRenderer **ppAtmosphereRenderer
     use_combined_textures_, use_half_precision_);
   pAtmosphereRenderer->pModel->LoadPrecomputedTextures();
 
-  udSprintf(&pCompleteAtmosphereShaderSource, "%s\n%s", pAtmosphereRenderer->pModel->shaderHeader().c_str(), g_AtmosphereFragmentShader);
+
+  udSprintf(&pCompleteAtmosphereShaderSource, "%s\n%s", g_AtmosphereFragmentShader, pAtmosphereRenderer->pModel->GetShaderDefinitions().c_str());
   UD_ERROR_IF(!vcShader_CreateFromText(&pAtmosphereRenderer->renderShader.pProgram, g_AtmosphereVertexShader, pCompleteAtmosphereShaderSource, vcP3UV2VertexLayout), udR_InternalError);
 
   vcShader_Bind(pAtmosphereRenderer->renderShader.pProgram);

@@ -1549,27 +1549,6 @@ void main()
 )shader";
 
 
-const char *const g_AtmosphereVertexShader = R"shader(
-    #version 330
-
-    layout (std140) uniform u_vertParams
-    {
-      mat4 u_modelFromView;
-      mat4 u_viewFromClip;
-    };
-
-    uniform ;
-    uniform ;
-    layout(location = 0) in vec4 vertex;
-    out vec3 view_ray;
-    out vec2 v_uv;
-    void main() {
-      view_ray =
-          (u_modelFromView * vec4((u_viewFromClip * vertex).xyz, 0.0)).xyz;
-      gl_Position = vertex;
-      v_uv = vertex.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
-}
-)shader";
 
 /**
  * Copyright (c) 2017 Eric Bruneton
@@ -1599,10 +1578,57 @@ const char *const g_AtmosphereVertexShader = R"shader(
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
  * THE POSSIBILITY OF SUCH DAMAGE.
  */
-const char *const g_AtmosphereFragmentShader = R"shader(
+const char *const g_AtmosphereVertexShader = VERT_HEADER R"shader(
+  layout (std140) uniform u_vertParams
+  {
+    mat4 u_modelFromView;
+    mat4 u_viewFromClip;
+  };
+  
+  uniform ;
+  uniform ;
+  layout(location = 0) in vec4 vertex;
+  out vec3 view_ray;
+  out vec2 v_uv;
+  void main() {
+    view_ray =
+        (u_modelFromView * vec4((u_viewFromClip * vertex).xyz, 0.0)).xyz;
+    gl_Position = vertex;
+    v_uv = vertex.xy * vec2(0.5, 0.5) + vec2(0.5, 0.5);
+}
+)shader";
 
-float s_CameraNearPlane=0.1;
-float s_CameraFarPlane=6000000.0;
+
+/**
+ * Copyright (c) 2017 Eric Bruneton
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ * 3. Neither the name of the copyright holders nor the names of its
+ *    contributors may be used to endorse or promote products derived from
+ *    this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF
+ * THE POSSIBILITY OF SUCH DAMAGE.
+ */
+const char *const g_AtmosphereFragmentShader = FRAG_HEADER R"shader(
+const float PI = 3.14159265358979323846;
 
 layout (std140) uniform u_fragParams
 {

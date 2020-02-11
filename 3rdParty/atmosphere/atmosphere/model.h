@@ -282,11 +282,8 @@ class Model {
 
   ~Model();
 
-  bool GeneratePrecomputedTextures(unsigned int num_scattering_orders = 4);
+  std::string GetShaderDefinitions();
   bool LoadPrecomputedTextures();
-
-  GLuint shader() const { return atmosphere_shader_; }
-  std::string shaderHeader();
 
   void SetProgramUniforms(
       GLuint program,
@@ -328,14 +325,10 @@ class Model {
   unsigned int num_precomputed_wavelengths_;
   bool half_precision_;
   bool rgb_format_supported_;
-  std::function<std::string(const vec3&)> glsl_header_factory_;
+  std::function<std::string(const vec3 &)> glsl_header_factory_;
   GLuint transmittance_texture_;
   GLuint scattering_texture_;
-  GLuint optional_single_mie_scattering_texture_;
   GLuint irradiance_texture_;
-  GLuint atmosphere_shader_;
-  GLuint full_screen_quad_vao_;
-  GLuint full_screen_quad_vbo_;
 };
 
 }  // namespace atmosphere
