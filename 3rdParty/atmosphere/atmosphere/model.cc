@@ -146,27 +146,6 @@ const char kAtmosphereShader[] = R"(
       return sun_irradiance * SUN_SPECTRAL_RADIANCE_TO_LUMINANCE;
     })";
 
-//GLuint NewTexture3d(int width, int height, int depth, GLenum format,
-//    bool half_precision) {
-//  GLuint texture;
-//  glGenTextures(1, &texture);
-//  glActiveTexture(GL_TEXTURE0);
-//  glBindTexture(GL_TEXTURE_3D, texture);
-//  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-//  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-//  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-//  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-//  glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-//  glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-//  GLenum internal_format = format == GL_RGBA ?
-//      (half_precision ? GL_RGBA16F : GL_RGBA32F) :
-//      (half_precision ? GL_RGB16F : GL_RGB32F);
-//  glTexImage3D(GL_TEXTURE_3D, 0, internal_format, width, height, depth, 0,
-//      format, GL_FLOAT, NULL);
-//  return texture;
-//}
-
-
 /*
 <p>Finally, we need a utility function to compute the value of the conversion
 constants *<code>_RADIANCE_TO_LUMINANCE</code>, used above to convert the
@@ -1659,12 +1638,6 @@ IrradianceSpectrum GetSunAndSkyIrradiance(
   vcTexture_Create(&pTransmittance_texture_, TRANSMITTANCE_TEXTURE_WIDTH, TRANSMITTANCE_TEXTURE_HEIGHT, 1, nullptr, vcTextureType_Texture2D, vcTextureFormat_RGBA32F, vcTFM_Linear, false, vcTWM_Clamp);
   vcTexture_Create(&pIrradiance_texture_, IRRADIANCE_TEXTURE_WIDTH, IRRADIANCE_TEXTURE_HEIGHT, 1, nullptr, vcTextureType_Texture2D, vcTextureFormat_RGBA32F, vcTFM_Linear, false, vcTWM_Clamp);
   vcTexture_Create(&pScattering_texture_, SCATTERING_TEXTURE_WIDTH, SCATTERING_TEXTURE_HEIGHT, SCATTERING_TEXTURE_DEPTH, nullptr, vcTextureType_Texture3D, vcTextureFormat_RGBA16F, vcTFM_Linear, false, vcTWM_Clamp);
-  //scattering_texture_ = NewTexture3d(
-  //    SCATTERING_TEXTURE_WIDTH,
-  //    SCATTERING_TEXTURE_HEIGHT,
-  //    SCATTERING_TEXTURE_DEPTH,
-  //    combine_scattering_textures || !rgb_format_supported_ ? GL_RGBA : GL_RGB,
-  //    half_precision);
 }
 
 /*
@@ -1684,23 +1657,16 @@ bool Model::LoadPrecomputedTextures()
   if (udFile_Load("asset://assets/data/transmittance.dat", &pPixels) != udR_Success)
     return false;
   vcTexture_UploadPixels(pTransmittance_texture_, pPixels, TRANSMITTANCE_TEXTURE_WIDTH, TRANSMITTANCE_TEXTURE_HEIGHT, 1, vcTextureFormat_RGB32F);
-
-  //glBindTexture(GL_TEXTURE_2D, transmittance_texture_);
-  //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, TRANSMITTANCE_TEXTURE_WIDTH, TRANSMITTANCE_TEXTURE_HEIGHT, 0, GL_RGB, GL_FLOAT, pPixels);
   udFree(pPixels);
   
   if (udFile_Load("asset://assets/data/irradiance.dat", &pPixels) != udR_Success)
     return false;
   vcTexture_UploadPixels(pIrradiance_texture_, pPixels, IRRADIANCE_TEXTURE_WIDTH, IRRADIANCE_TEXTURE_HEIGHT, 1, vcTextureFormat_RGB32F);
-  //glBindTexture(GL_TEXTURE_2D, irradiance_texture_);
-  //glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, IRRADIANCE_TEXTURE_WIDTH, IRRADIANCE_TEXTURE_HEIGHT, 0, GL_RGB, GL_FLOAT, pPixels);
   udFree(pPixels);
   
   if (udFile_Load("asset://assets/data/scattering.dat", &pPixels) != udR_Success)
     return false;
   vcTexture_UploadPixels(pScattering_texture_, pPixels, SCATTERING_TEXTURE_WIDTH, SCATTERING_TEXTURE_HEIGHT, SCATTERING_TEXTURE_DEPTH);
-  //glBindTexture(GL_TEXTURE_3D, scattering_texture_);
-  //glTexImage3D(GL_TEXTURE_3D, 0, GL_RGBA16F, SCATTERING_TEXTURE_WIDTH, SCATTERING_TEXTURE_HEIGHT, SCATTERING_TEXTURE_DEPTH, 0, GL_RGBA, GL_HALF_FLOAT, pPixels);
   udFree(pPixels);
   
   return true;
