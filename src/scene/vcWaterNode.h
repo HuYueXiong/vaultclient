@@ -6,6 +6,8 @@
 struct vcState;
 struct vcRenderData;
 
+struct vcWaterRenderer;
+
 class vcWater : public vcSceneItem
 {
 public:
@@ -21,6 +23,10 @@ public:
   void ChangeProjection(const udGeoZone &newZone);
 
   udDouble3 GetLocalSpacePivot();
+
+private:
+  udDouble3 m_pivot;
+  vcWaterRenderer *m_pWaterRenderer;
 };
 
 #endif //vcUnsupportedNode_h__

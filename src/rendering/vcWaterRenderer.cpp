@@ -67,7 +67,7 @@ udResult vcWaterRenderer_Init()
 
   UD_ERROR_IF(gRefCount != 1, udR_Success);
 
-  UD_ERROR_IF(vcTexture_CreateFromFilename(&pNormalMapTexture, "asset://assets/textures/waterNormalMap.jpg", nullptr, nullptr, vcTFM_Linear, true, vcTWM_Repeat), udR_InternalError);
+  UD_ERROR_IF(!vcTexture_CreateFromFilename(&pNormalMapTexture, "asset://assets/textures/waterNormalMap.jpg", nullptr, nullptr, vcTFM_Linear, true, vcTWM_Repeat), udR_InternalError);
 
   result = udR_Success;
 
