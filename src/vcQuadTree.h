@@ -28,11 +28,11 @@ struct vcNodeRenderInfo
   int32_t width, height;
   void *pData;
 
-  bool fadingIn;
-  float transparency;
+ // bool fadingIn;
+  //float transparency;
 
   // cached
-  udDouble2 center;
+  udDouble3 center;
 };
 
 struct vcQuadTreeNode
@@ -51,8 +51,8 @@ struct vcQuadTreeNode
   bool rendered;
 
   // cached
-  udDouble2 worldBounds[4]; // corners
-  udDouble2 tileCenter, tileExtents;
+  udDouble3 worldBounds[4]; // corners
+  udDouble3 tileCenter, tileExtents;
 
   vcNodeRenderInfo renderInfo;
 };
@@ -81,7 +81,7 @@ struct vcQuadTree
   udDouble3 cameraTreePosition;
   int expectedTreeDepth; // depth of the deepest node
   double quadTreeWorldSize;
-  double quadTreeHeightOffset;
+  //double quadTreeHeightOffset;
 
   uint32_t rootIndex;
   bool completeRerootRequired;
