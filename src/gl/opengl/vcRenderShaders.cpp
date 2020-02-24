@@ -387,7 +387,8 @@ uniform sampler2D u_texture;
 void main()
 {
   vec4 col = texture(u_texture, v_uv);
-  out_Colour = vec4(col.xyz * v_colour.xyz, v_colour.w);
+  //out_Colour = vec4(col.xyz * v_colour.xyz, v_colour.w);
+  out_Colour = vec4(mix(col.xyz, v_colour.xyz, v_colour.w), 1.0);
 
   float halfFcoef = 1.0 / log2(s_CameraFarPlane + 1.0);
   gl_FragDepth = log2(v_fLogDepth) * halfFcoef;
@@ -411,6 +412,7 @@ layout (std140) uniform u_EveryObject
   mat4 u_projection;
   vec4 u_eyePositions[VERTEX_COUNT * VERTEX_COUNT];
   vec4 u_colour;
+  vec4 u_colourUV;
 };
 
 // this could be used instead instead of writing to depth directly,
@@ -426,7 +428,7 @@ void main()
   // TODO: could have precision issues on some devices
   vec4 finalClipPos = u_projection * u_eyePositions[int(a_uv.z)];
 
-  v_uv = a_uv.xy;
+  v_uv = u_colourUV.xy + u_colourUV.zw * a_uv.xy;
   v_colour = u_colour;
   gl_Position = finalClipPos;
   v_fLogDepth = 1.0 + gl_Position.w;

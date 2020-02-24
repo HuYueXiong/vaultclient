@@ -31,6 +31,10 @@ struct vcNodeRenderInfo
  // bool fadingIn;
   //float transparency;
 
+  vcTexture *pDrawTexture; // may not own this
+  udFloat2 uvStart;
+  udFloat2 uvEnd;
+
   // cached
   udDouble3 center;
 };
