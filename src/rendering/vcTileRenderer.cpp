@@ -65,10 +65,10 @@ struct vcTileRenderer
     {
       udFloat4x4 projectionMatrix;
       udFloat4x4 viewMatrix;
-      udFloat4 eyePositions[4];
+      udFloat4 eyePositions[9];
       udFloat4 colour;
       udFloat4 uvOffsetScale;
-      udFloat4 demUVs[2 * 4];
+      udFloat4 demUVs[2 * 9];
     } everyObject;
   } presentShader;
 };
@@ -709,10 +709,6 @@ udResult vcTileRenderer_Create(vcTileRenderer **ppTileRenderer, vcSettings *pSet
     }
     vcTexture_Create(&pDEMTexture[i], outputSize, outputSize, pRealignedPixels, vcTextureFormat_R16, vcTFM_Linear, false, vcTWM_Clamp);//, vcTCF_None, 16);
   }
-  pTileRenderer->pTransparentTiles = new std::vector<vcQuadTreeNode*>();
-  pTileRenderer->pRenderQueue = new std::vector<std::vector<vcQuadTreeNode*>>();
-  for (int i = 0; i < MaxVisibleTileLevel; ++i)
-    pTileRenderer->pRenderQueue->push_back(std::vector<vcQuadTreeNode*>());
 
   *ppTileRenderer = pTileRenderer;
   pTileRenderer = nullptr;
@@ -889,6 +885,8 @@ bool vcTileRenderer_CanNodeDraw(vcQuadTreeNode *pNode)
 
 bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNode, vcMesh *pMesh, const udDouble4x4 &view, bool parentCanDraw)
 {
+  (parentCanDraw);
+
   vcTexture *pTexture = pNode->renderInfo.pDrawTexture;
   if (pTexture == nullptr)
     pTexture = pTileRenderer->pEmptyTileTexture;
@@ -903,7 +901,7 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
   //  //tileBounds[t] = udDouble2::create(localCorners[t].x, localCorners[t].y);
   //}
 
-  for (int t = 0; t < 4; ++t)//TileVertexResolution * TileVertexResolution; ++t)
+  for (int t = 0; t < 9; ++t)//TileVertexResolution * TileVertexResolution; ++t)
   {
     udFloat4 eyeSpaceVertexPosition = udFloat4::create(view * udDouble4::create(pNode->worldBounds[t], 1.0));
     pTileRenderer->presentShader.everyObject.eyePositions[t] = eyeSpaceVertexPosition;
@@ -926,7 +924,7 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
 //  }
 //#endif
 
-  for (int i = 0; i < 8; ++i)
+  for (int i = 0; i < 18; ++i)
     pTileRenderer->presentShader.everyObject.demUVs[i] = udFloat4::create(-1.0f, -1.0f, -1.0f, -1.0f);
 
   //S28E152, S28E153
@@ -949,13 +947,13 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
       continue;
   
     rejectTile = false;
-    for (int t = 0; t < 4; ++t)
+    for (int t = 0; t < 9; ++t)
     {
       double u = udClamp((pNode->worldBounds[t].x - min.x) / range.x, 0.0, 1.0);
       double v = udClamp((pNode->worldBounds[t].y - min.y) / range.y, 0.0, 1.0);
   
-      pTileRenderer->presentShader.everyObject.demUVs[d * 4 + t].x = float(u);
-      pTileRenderer->presentShader.everyObject.demUVs[d * 4 + t].y = float(1.0 - v);
+      pTileRenderer->presentShader.everyObject.demUVs[d * 9 + t].x = float(u);
+      pTileRenderer->presentShader.everyObject.demUVs[d * 9 + t].y = float(1.0 - v);
     }
   }
   
@@ -964,11 +962,6 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
 
   udFloat2 size = pNode->renderInfo.uvEnd - pNode->renderInfo.uvStart;
   pTileRenderer->presentShader.everyObject.uvOffsetScale = udFloat4::create(pNode->renderInfo.uvStart, size.x, size.y);
-  pTileRenderer->presentShader.everyObject.colourUV = udFloat4::create(
-    pNode->renderInfo.uvStart.x,
-    pNode->renderInfo.uvStart.y,
-    pNode->renderInfo.uvEnd.x - pNode->renderInfo.uvStart.x,
-    pNode->renderInfo.uvEnd.y - pNode->renderInfo.uvStart.y);
 
   vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pTexture, 0, pTileRenderer->presentShader.uniform_texture);
   vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pDEMTexture[0], 1, pTileRenderer->presentShader.uniform_dem0);
@@ -1047,7 +1040,18 @@ bool vcTileRenderer_RecursiveRenderNodes(vcTileRenderer *pTileRenderer, const ud
     pNode->renderInfo.uvEnd = udFloat2::one() - (udFloat2::create(ancestorSlippyLocal1 - slippy1) / boundsRange);
   }
 
-  vcTileRenderer_DrawNode(pTileRenderer, pNode, pTileRenderer->pFullTileMesh, view);
+  int meshIndex = 0;
+  for (int mc = 0; mc < 16; ++mc)
+  {
+    if (meshConfigurations[mc] == pNode->neighbours)
+    {
+      meshIndex = mc;
+      break;
+    }
+  }
+
+  vcTileRenderer_DrawNode(pTileRenderer, pNode, pTileRenderer->pTileMeshes[meshIndex], view, false);
+ // vcTileRenderer_DrawNode(pTileRenderer, pNode, pTileRenderer->pFullTileMesh, view, false);
 
   // This child doesn't need parent to draw itself
   return true;
@@ -1085,11 +1089,14 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
 
   vcShader_Bind(pTileRenderer->presentShader.pProgram);
   pTileRenderer->presentShader.everyObject.projectionMatrix = udFloat4x4::create(proj);
+  pTileRenderer->presentShader.everyObject.viewMatrix = udFloat4x4::create(view);
   pTileRenderer->presentShader.everyObject.colour = udFloat4::create(1.f, 1.f, 1.f, pTileRenderer->pSettings->maptiles.transparency);
 
   vcTileRenderer_RecursiveRenderNodes(pTileRenderer, viewWithMapTranslation, pRootNode, nullptr);
-  glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-  glPolygonOffset(1.0f, 0.0f);
+  vcGLState_SetViewportDepthRange(0.0f, 1.0f);
+  vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true, nullptr);
+  vcGLState_SetBlendMode(vcGLSBM_None);
+  vcShader_Bind(nullptr);
 
   vcGLState_SetViewportDepthRange(0.0f, 1.0f);
   vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true, nullptr);

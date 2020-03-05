@@ -471,9 +471,10 @@ void vcQuadTree_Update(vcQuadTree *pQuadTree, const vcQuadTreeViewInfo &viewInfo
     pQuadTree->nodes.pPool[pQuadTree->rootIndex].visible = true;
 
     vcQuadTree_RecurseGenerateTree(pQuadTree, pQuadTree->rootIndex, 0);
-    vcQuadTree_Prune(pQuadTree);
-    vcQuadTree_CalculateNeighbours(pQuadTree, &pQuadTree->nodes.pPool[pQuadTree->rootIndex]);
   }
+
+  vcQuadTree_Prune(pQuadTree);
+  vcQuadTree_CalculateNeighbours(pQuadTree, &pQuadTree->nodes.pPool[pQuadTree->rootIndex]);
 }
 
 bool vcQuadTree_IsBlockUsed(vcQuadTree *pQuadTree, uint32_t blockIndex)
@@ -492,6 +493,8 @@ bool vcQuadTree_ShouldFreeBlock(vcQuadTree *pQuadTree, uint32_t blockIndex)
     if (pChildNode->touched || pChildNode->renderInfo.loadStatus == vcNodeRenderInfo::vcTLS_Downloading)
       return false;
   }
+
+  return true;
 
   // determine if this block is being used for rendering
   for (uint32_t c = 0; c < NodeChildCount; ++c)

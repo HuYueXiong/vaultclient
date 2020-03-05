@@ -387,11 +387,13 @@ uniform sampler2D u_texture;
 void main()
 {
   vec4 col = texture(u_texture, v_uv);
-  //out_Colour = vec4(col.xyz * v_colour.xyz, v_colour.w);
-  out_Colour = vec4(mix(col.xyz, v_colour.xyz, v_colour.w), 1.0);
+  out_Colour = vec4(col.xyz * v_colour.xyz, v_colour.w);
+  //out_Colour = vec4(mix(col.xyz, v_colour.xyz, v_colour.w), 1.0);
 
   //float t = v_uv.x / 1000.0;//(max(0.5, v_uv.x / 1000.0) - 0.5) * 2;
   //out_Colour = vec4(col.xyz * 0.1 + v_colour.xyz, 1);
+
+  //out_Colour = out_Colour * 0.00001 + vec4(v_colour.xyz, 1);
 
   float halfFcoef = 1.0 / log2(s_CameraFarPlane + 1.0);
   gl_FragDepth = log2(v_fLogDepth) * halfFcoef;
@@ -411,16 +413,16 @@ uniform sampler2D u_dem0;
 uniform sampler2D u_dem1;
 
 // This should match CPU struct size
-#define VERTEX_COUNT 3
+//#define VERTEX_COUNT 3
 
 layout (std140) uniform u_EveryObject
 {
   mat4 u_projection;
   mat4 u_view;
-  vec4 u_eyePositions[4];
+  vec4 u_eyePositions[9];
   vec4 u_colour;
-  vec4 u_demUVs[2 * 4];
   vec4 u_uvOffsetScale;
+  vec4 u_demUVs[2 * 9];
 };
 
 // this could be used instead instead of writing to depth directly,
@@ -438,39 +440,39 @@ void main()
   vec2 demUV1 = vec2(0.0);
 
   {
-    vec2 indexUV = a_uv.xy;
+    vec2 indexUV = a_uv.xy * 2.0;
 
     float ui = floor(indexUV.x);
     float vi = floor(indexUV.y);
-    float ui2 = min(1.0, ui + 1.0);
-    float vi2 = min(1.0, vi + 1.0);
+    float ui2 = min(2.0, ui + 1.0);
+    float vi2 = min(2.0, vi + 1.0);
     vec2 uvt = vec2(indexUV.x - ui, indexUV.y - vi);
 
     // bilinear position
-    vec4 p0 = u_eyePositions[int(vi * 2.0 + ui)];
-    vec4 p1 = u_eyePositions[int(vi * 2.0 + ui2)];
-    vec4 p2 = u_eyePositions[int(vi2 * 2.0 + ui)];
-    vec4 p3 = u_eyePositions[int(vi2 * 2.0 + ui2)];
+    vec4 p0 = u_eyePositions[int(vi * 3.0 + ui)];
+    vec4 p1 = u_eyePositions[int(vi * 3.0 + ui2)];
+    vec4 p2 = u_eyePositions[int(vi2 * 3.0 + ui)];
+    vec4 p3 = u_eyePositions[int(vi2 * 3.0 + ui2)];
 
     vec4 pu = (p0 + (p1 - p0) * uvt.x);
     vec4 pv = (p2 + (p3 - p2) * uvt.x);
     eyePos = (pu + (pv - pu) * uvt.y);
 
     // bilinear DEM heights 0
-    vec2 duv0 = u_demUVs[int(vi * 2.0 + ui)].xy;
-    vec2 duv1 = u_demUVs[int(vi * 2.0 + ui2)].xy;
-    vec2 duv2 = u_demUVs[int(vi2 * 2.0 + ui)].xy;
-    vec2 duv3 = u_demUVs[int(vi2 * 2.0 + ui2)].xy;
+    vec2 duv0 = u_demUVs[int(vi * 3.0 + ui)].xy;
+    vec2 duv1 = u_demUVs[int(vi * 3.0 + ui2)].xy;
+    vec2 duv2 = u_demUVs[int(vi2 * 3.0 + ui)].xy;
+    vec2 duv3 = u_demUVs[int(vi2 * 3.0 + ui2)].xy;
 
     vec2 duvu = (duv0 + (duv1 - duv0) * uvt.x);
     vec2 duvd = (duv2 + (duv3 - duv2) * uvt.x);
     demUV0 = (duvu + (duvd - duvu) * uvt.y);
 
     // bilinear DEM heights 1
-    duv0 = u_demUVs[4 + int(vi * 2.0 + ui)].xy;
-    duv1 = u_demUVs[4 + int(vi * 2.0 + ui2)].xy;
-    duv2 = u_demUVs[4 + int(vi2 * 2.0 + ui)].xy;
-    duv3 = u_demUVs[4 + int(vi2 * 2.0 + ui2)].xy;
+    duv0 = u_demUVs[9 + int(vi * 3.0 + ui)].xy;
+    duv1 = u_demUVs[9 + int(vi * 3.0 + ui2)].xy;
+    duv2 = u_demUVs[9 + int(vi2 * 3.0 + ui)].xy;
+    duv3 = u_demUVs[9 + int(vi2 * 3.0 + ui2)].xy;
 
     duvu = (duv0 + (duv1 - duv0) * uvt.x);
     duvd = (duv2 + (duv3 - duv2) * uvt.x);
