@@ -387,8 +387,9 @@ uniform sampler2D u_texture;
 void main()
 {
   vec4 col = texture(u_texture, v_uv);
-  out_Colour = vec4(col.xyz * v_colour.xyz, v_colour.w);
-  //out_Colour = vec4(mix(col.xyz, v_colour.xyz, v_colour.w), 1.0);
+  //out_Colour = vec4(col.xyz * v_colour.xyz, v_colour.w);
+
+  out_Colour = vec4(mix(col.xyz, v_colour.xyz, v_colour.w), 1.0);
 
   //float t = v_uv.x / 1000.0;//(max(0.5, v_uv.x / 1000.0) - 0.5) * 2;
   //out_Colour = vec4(col.xyz * 0.1 + v_colour.xyz, 1);
@@ -409,8 +410,7 @@ out vec4 v_colour;
 out vec2 v_uv;
 out float v_fLogDepth;
 
-uniform sampler2D u_dem0;
-uniform sampler2D u_dem1;
+uniform sampler2D u_dem;
 
 // This should match CPU struct size
 //#define VERTEX_COUNT 3
@@ -422,7 +422,7 @@ layout (std140) uniform u_EveryObject
   vec4 u_eyePositions[9];
   vec4 u_colour;
   vec4 u_uvOffsetScale;
-  vec4 u_demUVs[2 * 9];
+  vec4 u_demUVOffsetScale;
 };
 
 // this could be used instead instead of writing to depth directly,
@@ -436,8 +436,6 @@ layout (std140) uniform u_EveryObject
 void main()
 {
   vec4 eyePos = vec4(0.0);
-  vec2 demUV0 = vec2(0.0);
-  vec2 demUV1 = vec2(0.0);
 
   {
     vec2 indexUV = a_uv.xy * 2.0;
@@ -457,44 +455,10 @@ void main()
     vec4 pu = (p0 + (p1 - p0) * uvt.x);
     vec4 pv = (p2 + (p3 - p2) * uvt.x);
     eyePos = (pu + (pv - pu) * uvt.y);
-
-    // bilinear DEM heights 0
-    vec2 duv0 = u_demUVs[int(vi * 3.0 + ui)].xy;
-    vec2 duv1 = u_demUVs[int(vi * 3.0 + ui2)].xy;
-    vec2 duv2 = u_demUVs[int(vi2 * 3.0 + ui)].xy;
-    vec2 duv3 = u_demUVs[int(vi2 * 3.0 + ui2)].xy;
-
-    vec2 duvu = (duv0 + (duv1 - duv0) * uvt.x);
-    vec2 duvd = (duv2 + (duv3 - duv2) * uvt.x);
-    demUV0 = (duvu + (duvd - duvu) * uvt.y);
-
-    // bilinear DEM heights 1
-    duv0 = u_demUVs[9 + int(vi * 3.0 + ui)].xy;
-    duv1 = u_demUVs[9 + int(vi * 3.0 + ui2)].xy;
-    duv2 = u_demUVs[9 + int(vi2 * 3.0 + ui)].xy;
-    duv3 = u_demUVs[9 + int(vi2 * 3.0 + ui2)].xy;
-
-    duvu = (duv0 + (duv1 - duv0) * uvt.x);
-    duvd = (duv2 + (duv3 - duv2) * uvt.x);
-    demUV1 = (duvu + (duvd - duvu) * uvt.y);
   }
 
-  float tileHeight = 0.0;
-
-  float use0 = float(demUV0.x >= 0.0 && demUV0.x <= 1.0 && demUV0.y >= 0.0 && demUV0.y <= 1.0);
-  float use1 = float(demUV1.x >= 0.0 && demUV1.x <= 1.0 && demUV1.y >= 0.0 && demUV1.y <= 1.0);
-  if (use0 == 0.0 && use1 == 0.0)
-  {
-    // not possible
-  } else if (use0 == 0.0)
-  {
-    tileHeight = texture(u_dem1, demUV1).r;
-  } else
-  {
-    tileHeight = texture(u_dem0, demUV0).r;
-  }
-  tileHeight *= 32768.0;
-
+  vec2 demUV = u_demUVOffsetScale.xy + u_demUVOffsetScale.zw * a_uv.xy;
+  float tileHeight = texture(u_dem, demUV).r * 32768.0;
   vec4 h = u_view * vec4(0, 0, tileHeight, 1.0);
   vec4 baseH = u_view * vec4(0, 0, 0, 1.0);
   vec4 diff = (h - baseH);
@@ -505,6 +469,7 @@ void main()
   //finalClipPos = u_projection * u_eyePositions[int(a_uv.z)];
 
   v_uv = u_uvOffsetScale.xy + u_uvOffsetScale.zw * a_uv.xy;
+  //v_colour = vec4(demUV, 0, 1);//u_colour;
   v_colour = u_colour;
   //if (use0 == 0.0)
   //  v_colour = u_colour * vec4(1,0,0,u_colour.w);

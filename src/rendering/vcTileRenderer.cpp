@@ -19,8 +19,6 @@
 // Debug tiles with colour information
 #define VISUALIZE_DEBUG_TILES 0
 
-vcTexture *pDEMTexture[2] = {};
-
 enum
 {
   TileVertexResolution = 31, // This should match GPU struct size
@@ -39,6 +37,7 @@ struct vcTileRenderer
 
   vcMesh *pTileMeshes[16];
   vcTexture *pEmptyTileTexture;
+  vcTexture *pEmptyDemTileTexture;
 
   udDouble3 cameraPosition;
 
@@ -58,8 +57,7 @@ struct vcTileRenderer
     vcShader *pProgram;
     vcShaderConstantBuffer *pConstantBuffer;
     vcShaderSampler *uniform_texture;
-    vcShaderSampler *uniform_dem0;
-    vcShaderSampler *uniform_dem1;
+    vcShaderSampler *uniform_dem;
 
     struct
     {
@@ -68,7 +66,7 @@ struct vcTileRenderer
       udFloat4 eyePositions[9];
       udFloat4 colour;
       udFloat4 uvOffsetScale;
-      udFloat4 demUVs[2 * 9];
+      udFloat4 demUVOffsetScale;
     } everyObject;
   } presentShader;
 };
@@ -199,7 +197,9 @@ uint32_t vcTileRenderer_LoadThread(void *pThreadData)
 
       char localFileName[vcMaxPathLength];
       char serverAddress[vcMaxPathLength];
+      char demFileName[vcMaxPathLength] = {};
 
+      udSprintf(demFileName, "%s/%d/%d/%d.png", "D:/Vault/Maps/DEM/slippy", pBestNode->slippyPosition.z, pBestNode->slippyPosition.x, pBestNode->slippyPosition.y);
       udSprintf(localFileName, "%s/%s/%d/%d/%d.%s", pRenderer->pSettings->cacheAssetPath, udUUID_GetAsString(pRenderer->pSettings->maptiles.tileServerAddressUUID), pBestNode->slippyPosition.z, pBestNode->slippyPosition.x, pBestNode->slippyPosition.y, pRenderer->pSettings->maptiles.tileServerExtension);
       udSprintf(serverAddress, "%s/%d/%d/%d.%s", pRenderer->pSettings->maptiles.tileServerAddress, pBestNode->slippyPosition.z, pBestNode->slippyPosition.x, pBestNode->slippyPosition.y, pRenderer->pSettings->maptiles.tileServerExtension);
       udReleaseMutex(pCache->pMutex);
@@ -220,6 +220,27 @@ uint32_t vcTileRenderer_LoadThread(void *pThreadData)
       int height = 0;
       int channelCount = 0;
       uint8_t *pData = nullptr;
+
+      // dem
+      if (udFile_Load(demFileName, &pFileData, &fileLen) == udR_Success)
+      {
+        pData = stbi_load_from_memory((stbi_uc*)pFileData, (int)fileLen, (int*)&width, (int*)&height, (int*)&channelCount, 4);
+        if (pData != nullptr)
+        {
+          pBestNode->renderInfo.demWidth = width;
+          pBestNode->renderInfo.demHeight = height;
+          pBestNode->renderInfo.pDemData = udMemDup(pData, sizeof(uint32_t) * width * height, 0, udAF_None);
+          stbi_image_free(pData);
+        }
+
+        udFree(pFileData);
+        pFileData = nullptr;
+        fileLen = -1;
+        width = 0;
+        height = 0;
+        channelCount = 0;
+        pData = nullptr;
+      }
 
       UD_ERROR_CHECK(udFile_Load(pTileURL, &pFileData, &fileLen));
       UD_ERROR_IF(fileLen == 0, udR_InternalError);
@@ -652,6 +673,7 @@ udResult vcTileRenderer_Create(vcTileRenderer **ppTileRenderer, vcSettings *pSet
   vcP3Vertex verts[TileVertexResolution * TileVertexResolution] = {};
   int indicies[TileIndexResolution * TileIndexResolution * 6] = {};
   uint32_t greyPixel = 0xf3f3f3ff;
+  uint16_t blackPixel = 0x0;
   const char *tiles[] = { "D:\\git\\vaultclient\\builds\\assets\\S28E152.hgt", "D:\\git\\vaultclient\\builds\\assets\\S28E153.hgt" };
   UD_ERROR_NULL(ppTileRenderer, udR_InvalidParameter_);
 
@@ -674,8 +696,7 @@ udResult vcTileRenderer_Create(vcTileRenderer **ppTileRenderer, vcSettings *pSet
   UD_ERROR_IF(!vcShader_CreateFromText(&pTileRenderer->presentShader.pProgram, g_tileVertexShader, g_tileFragmentShader, vcP3VertexLayout), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetConstantBuffer(&pTileRenderer->presentShader.pConstantBuffer, pTileRenderer->presentShader.pProgram, "u_EveryObject", sizeof(pTileRenderer->presentShader.everyObject)), udR_InternalError);
   UD_ERROR_IF(!vcShader_GetSamplerIndex(&pTileRenderer->presentShader.uniform_texture, pTileRenderer->presentShader.pProgram, "u_texture"), udR_InternalError);
-  vcShader_GetSamplerIndex(&pTileRenderer->presentShader.uniform_dem0, pTileRenderer->presentShader.pProgram, "u_dem0");
-  vcShader_GetSamplerIndex(&pTileRenderer->presentShader.uniform_dem1, pTileRenderer->presentShader.pProgram, "u_dem1");
+  vcShader_GetSamplerIndex(&pTileRenderer->presentShader.uniform_dem, pTileRenderer->presentShader.pProgram, "u_dem");
 
   // build mesh variants
   for (int i = 0; i < 16; ++i)
@@ -685,30 +706,7 @@ udResult vcTileRenderer_Create(vcTileRenderer **ppTileRenderer, vcSettings *pSet
   }
 
   UD_ERROR_CHECK(vcTexture_Create(&pTileRenderer->pEmptyTileTexture, 1, 1, &greyPixel));
-
-  for (int i = 0; i < 2; ++i)
-  {
-    void *pFileData;
-    int64_t fileLen;
-    udFile_Load(tiles[i], &pFileData, &fileLen);
-    int outputSize = 3601;
-    int inputSize = 3601;
-    int16_t *pRealignedPixels = udAllocType(int16_t, outputSize * outputSize, udAF_Zero);
-    int16_t lastValidHeight = 0;
-    for (int y = 0; y < outputSize; ++y)
-    {
-      for (int x = 0; x < outputSize; ++x)
-      {
-        int16_t p = ((int16_t *)pFileData)[y * inputSize + x];
-        p = ((p & 0xff00) >> 8) | ((p & 0x00ff) << 8);
-        if (p == -32768)
-          p = lastValidHeight;
-        lastValidHeight = p;
-        pRealignedPixels[y * outputSize + x] = p;
-      }
-    }
-    vcTexture_Create(&pDEMTexture[i], outputSize, outputSize, pRealignedPixels, vcTextureFormat_R16, vcTFM_Linear, false, vcTWM_Clamp);//, vcTCF_None, 16);
-  }
+  UD_ERROR_CHECK(vcTexture_Create(&pTileRenderer->pEmptyDemTileTexture, 1, 1, &blackPixel, vcTextureFormat_R16));
 
   *ppTileRenderer = pTileRenderer;
   pTileRenderer = nullptr;
@@ -750,13 +748,12 @@ udResult vcTileRenderer_Destroy(vcTileRenderer **ppTileRenderer)
   for (int i = 0; i < 16; ++i)
     vcMesh_Destroy(&pTileRenderer->pTileMeshes[i]);
   vcTexture_Destroy(&pTileRenderer->pEmptyTileTexture);
+  vcTexture_Destroy(&pTileRenderer->pEmptyDemTileTexture);
 
   vcQuadTree_Destroy(&(*ppTileRenderer)->quadTree);
   udFree(*ppTileRenderer);
   *ppTileRenderer = nullptr;
 
-  vcTexture_Destroy(&pDEMTexture[0]);
-  vcTexture_Destroy(&pDEMTexture[1]);
   return udR_Success;
 }
 
@@ -784,6 +781,28 @@ bool vcTileRenderer_UpdateTileTexture(vcTileRenderer *pTileRenderer, vcQuadTreeN
 
     vcTexture_Create(&pNode->renderInfo.pTexture, pNode->renderInfo.width, pNode->renderInfo.height, pNode->renderInfo.pData, vcTextureFormat_RGBA8, vcTFM_Linear, true, vcTWM_Clamp, vcTCF_None, 16);
     udFree(pNode->renderInfo.pData);
+
+    if (pNode->renderInfo.pDemData != nullptr)
+    {
+      int16_t *pShortPixels = udAllocType(int16_t, pNode->renderInfo.demWidth * pNode->renderInfo.demHeight, udAF_Zero);
+      for (int h = 0; h < pNode->renderInfo.demHeight; ++h)
+      {
+        for (int w = 0; w < pNode->renderInfo.demWidth; ++w)
+        {
+          int index = h * pNode->renderInfo.demWidth + w;
+          uint32_t p = ((uint32_t*)pNode->renderInfo.pDemData)[index];
+          uint8_t r = (p & 0xff000000) >> 24;
+          uint8_t g = (p & 0x00ff0000) >> 16;
+
+          uint16_t height = r | (g << 8);
+
+          pShortPixels[index] = height;
+        }
+      }
+      vcTexture_Create(&pNode->renderInfo.pDemTexture, pNode->renderInfo.demWidth, pNode->renderInfo.demHeight, pShortPixels, vcTextureFormat_R16, vcTFM_Linear, false, vcTWM_Clamp);//, vcTCF_None, 16);
+      udFree(pShortPixels);
+      udFree(pNode->renderInfo.pDemData);
+    }
 
     return true;
   }
@@ -891,15 +910,9 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
   if (pTexture == nullptr)
     pTexture = pTileRenderer->pEmptyTileTexture;
 
-  //int slippyLayerDescendAmount = 1;//udMin((MAX_SLIPPY_LEVEL - slippyTileCoord.z), gSlippyLayerDescendAmount[3]);
-  //udDouble3 tileBounds[9];
-  //for (int t = 0; t < 9; ++t)
-  //{
-  //  udInt2 slippySampleCoord = udInt2::create((pNode->slippyPosition.x * (1 << slippyLayerDescendAmount)) + (t % 3),
-  //    (pNode->slippyPosition.y * (1 << slippyLayerDescendAmount)) + (t / 3));
-  //  vcGIS_SlippyToLocal(&pTileRenderer->quadTree.gisSpace, &tileBounds[t], slippySampleCoord, pNode->slippyPosition.z + slippyLayerDescendAmount);
-  //  //tileBounds[t] = udDouble2::create(localCorners[t].x, localCorners[t].y);
-  //}
+  vcTexture *pDemTexture = pNode->renderInfo.pDrawDemTexture;
+  if (pDemTexture == nullptr)
+    pDemTexture = pTileRenderer->pEmptyDemTileTexture;
 
   for (int t = 0; t < 9; ++t)//TileVertexResolution * TileVertexResolution; ++t)
   {
@@ -907,66 +920,14 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
     pTileRenderer->presentShader.everyObject.eyePositions[t] = eyeSpaceVertexPosition;
   }
 
-  //for (int t = 0; t < TileVertexResolution * TileVertexResolution; ++t)
-  //{
-  //  udFloat4 eyeSpaceVertexPosition = udFloat4::create(view * udDouble4::create(pNode->worldBounds[t], 0.0, 1.0));
-  //  pTileRenderer->presentShader.everyObject.eyePositions[t] = eyeSpaceVertexPosition;
-  //}
-
-  //pTileRenderer->presentShader.everyObject.colour = udFloat4::create(1.f, 1.f, 1.f, tileTransparency);
-//#if VISUALIZE_DEBUG_TILES
-//  pTileRenderer->presentShader.everyObject.colour.w = 1.0f;
-//  if (!pNode->renderInfo.pTexture)
-//  {
-//    pTileRenderer->presentShader.everyObject.colour.x = pNode->level / 21.0f;
-//    if (!pNode->visible)
-//      pTileRenderer->presentShader.everyObject.colour.z = pNode->level / 21.0f;
-//  }
-//#endif
-
-  for (int i = 0; i < 18; ++i)
-    pTileRenderer->presentShader.everyObject.demUVs[i] = udFloat4::create(-1.0f, -1.0f, -1.0f, -1.0f);
-
-  //S28E152, S28E153
-  // bottom left corners
-  udDouble2 latLongs[] = { udDouble2::create(-28.0, 152.0), udDouble2::create(-28.0, 153.0) };
-  bool rejectTile = true;
-  for (int d = 0; d < 2; ++d)
-  {
-    udDouble3 r0 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(latLongs[d] + udDouble2::create(0.0, 0.0), 0));
-    udDouble3 r1 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(latLongs[d] + udDouble2::create(1.0, 0.0), 0));
-    udDouble3 r2 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(latLongs[d] + udDouble2::create(0.0, 1.0), 0));
-    udDouble3 r3 = udGeoZone_LatLongToCartesian(pTileRenderer->quadTree.gisSpace.zone, udDouble3::create(latLongs[d] + udDouble2::create(1.0, 1.0), 0));
-  
-    udDouble3 min = udMin(udMin(udMin(r0, r1), r2), r3);
-    udDouble3 max = udMax(udMax(udMax(r0, r1), r2), r3);
-  
-    udDouble3 range = max - min;
-    bool inBounds = !(pNode->worldBounds[1].x < min.x || pNode->worldBounds[0].x > max.x || pNode->worldBounds[1].y < min.y || pNode->worldBounds[3].y > max.y);
-    if (!inBounds)
-      continue;
-  
-    rejectTile = false;
-    for (int t = 0; t < 9; ++t)
-    {
-      double u = udClamp((pNode->worldBounds[t].x - min.x) / range.x, 0.0, 1.0);
-      double v = udClamp((pNode->worldBounds[t].y - min.y) / range.y, 0.0, 1.0);
-  
-      pTileRenderer->presentShader.everyObject.demUVs[d * 9 + t].x = float(u);
-      pTileRenderer->presentShader.everyObject.demUVs[d * 9 + t].y = float(1.0 - v);
-    }
-  }
-  
-  if (rejectTile)
-    return true;
-
   udFloat2 size = pNode->renderInfo.uvEnd - pNode->renderInfo.uvStart;
   pTileRenderer->presentShader.everyObject.uvOffsetScale = udFloat4::create(pNode->renderInfo.uvStart, size.x, size.y);
 
-  vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pTexture, 0, pTileRenderer->presentShader.uniform_texture);
-  vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pDEMTexture[0], 1, pTileRenderer->presentShader.uniform_dem0);
-  vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pDEMTexture[1], 2, pTileRenderer->presentShader.uniform_dem1);
+  udFloat2 demSize = pNode->renderInfo.uvDemEnd - pNode->renderInfo.uvDemStart;
+  pTileRenderer->presentShader.everyObject.demUVOffsetScale = udFloat4::create(pNode->renderInfo.uvDemStart, demSize.x, demSize.y);
 
+  vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pTexture, 0, pTileRenderer->presentShader.uniform_texture);
+  vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pDemTexture, 1, pTileRenderer->presentShader.uniform_dem);
 
   vcShader_BindConstantBuffer(pTileRenderer->presentShader.pProgram, pTileRenderer->presentShader.pConstantBuffer, &pTileRenderer->presentShader.everyObject, sizeof(pTileRenderer->presentShader.everyObject));
   vcMesh_Render(pMesh, TileIndexResolution * TileIndexResolution * 2); // 2 tris per quad
@@ -989,7 +950,7 @@ void vcTileRenderer_RecursiveSetRendered(vcTileRenderer *pTileRenderer, vcQuadTr
 
 // 'true' indicates the node was able to render itself (or it didn't want to render itself).
 // 'false' indicates that the nodes ancestor needs to be rendered.
-bool vcTileRenderer_RecursiveRenderNodes(vcTileRenderer *pTileRenderer, const udDouble4x4 &view, vcQuadTreeNode *pNode, vcQuadTreeNode *pBestTexturedAncestor)
+bool vcTileRenderer_RecursiveRenderNodes(vcTileRenderer *pTileRenderer, const udDouble4x4 &view, vcQuadTreeNode *pNode, vcQuadTreeNode *pBestTexturedAncestor, vcQuadTreeNode *pBestDemAncestor)
 {
   if (!pNode->touched)
   {
@@ -1001,10 +962,17 @@ bool vcTileRenderer_RecursiveRenderNodes(vcTileRenderer *pTileRenderer, const ud
     return false;
 
   pNode->renderInfo.pDrawTexture = nullptr;
+  pNode->renderInfo.pDrawDemTexture = nullptr;
   if (vcTileRenderer_CanNodeDraw(pNode))
   {
     pNode->renderInfo.pDrawTexture = pNode->renderInfo.pTexture;
     pBestTexturedAncestor = pNode;
+  }
+
+  if (pNode->renderInfo.pDemTexture != nullptr)
+  {
+    pNode->renderInfo.pDrawDemTexture = pNode->renderInfo.pDemTexture;
+    pBestDemAncestor = pNode;
   }
 
   if (!vcQuadTree_IsLeafNode(pNode))
@@ -1012,7 +980,7 @@ bool vcTileRenderer_RecursiveRenderNodes(vcTileRenderer *pTileRenderer, const ud
     for (int c = 0; c < 4; ++c)
     {
       vcQuadTreeNode *pChildNode = &pTileRenderer->quadTree.nodes.pPool[pNode->childBlockIndex + c];
-      vcTileRenderer_RecursiveRenderNodes(pTileRenderer, view, pChildNode, pBestTexturedAncestor);
+      vcTileRenderer_RecursiveRenderNodes(pTileRenderer, view, pChildNode, pBestTexturedAncestor, pBestDemAncestor);
     }
 
     // only draw leaves
@@ -1040,6 +1008,27 @@ bool vcTileRenderer_RecursiveRenderNodes(vcTileRenderer *pTileRenderer, const ud
     pNode->renderInfo.uvEnd = udFloat2::one() - (udFloat2::create(ancestorSlippyLocal1 - slippy1) / boundsRange);
   }
 
+  pNode->renderInfo.uvDemStart = udFloat2::zero();
+  pNode->renderInfo.uvDemEnd = udFloat2::one();
+  if (pBestDemAncestor != nullptr && pBestDemAncestor != pNode)
+  {
+    // calculate what portion of ancestors colour to display at this tile
+    pNode->renderInfo.pDrawDemTexture = pBestDemAncestor->renderInfo.pDrawDemTexture;
+    int depthDiff = pNode->slippyPosition.z - pBestDemAncestor->slippyPosition.z;
+    int slippyRange = (int)udPow(2.0f, (float)depthDiff);
+    udFloat2 boundsRange = udFloat2::create((float)slippyRange);
+
+    // top-left, and bottom-right corners
+    udInt2 slippy0 = pNode->slippyPosition.toVector2();
+    udInt2 slippy1 = slippy0 + udInt2::one();
+
+    udInt2 ancestorSlippyLocal0 = udInt2::create(pBestDemAncestor->slippyPosition.x * slippyRange, pBestDemAncestor->slippyPosition.y * slippyRange);
+    udInt2 ancestorSlippyLocal1 = ancestorSlippyLocal0 + udInt2::create(slippyRange);
+
+    pNode->renderInfo.uvDemStart = udFloat2::create(slippy0 - ancestorSlippyLocal0) / boundsRange;
+    pNode->renderInfo.uvDemEnd = udFloat2::one() - (udFloat2::create(ancestorSlippyLocal1 - slippy1) / boundsRange);
+  }
+
   int meshIndex = 0;
   for (int mc = 0; mc < 16; ++mc)
   {
@@ -1056,6 +1045,8 @@ bool vcTileRenderer_RecursiveRenderNodes(vcTileRenderer *pTileRenderer, const ud
   // This child doesn't need parent to draw itself
   return true;
 }
+
+#include "gl/opengl/vcOpenGL.h"
 
 void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &view, const udDouble4x4 &proj, const bool cameraInsideGround)
 {
@@ -1090,13 +1081,21 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
   vcShader_Bind(pTileRenderer->presentShader.pProgram);
   pTileRenderer->presentShader.everyObject.projectionMatrix = udFloat4x4::create(proj);
   pTileRenderer->presentShader.everyObject.viewMatrix = udFloat4x4::create(view);
-  pTileRenderer->presentShader.everyObject.colour = udFloat4::create(1.f, 1.f, 1.f, pTileRenderer->pSettings->maptiles.transparency);
+  pTileRenderer->presentShader.everyObject.colour = udFloat4::create(1.f, 1.f, 1.f, 0.0f);//pTileRenderer->pSettings->maptiles.transparency);
 
-  vcTileRenderer_RecursiveRenderNodes(pTileRenderer, viewWithMapTranslation, pRootNode, nullptr);
-  vcGLState_SetViewportDepthRange(0.0f, 1.0f);
-  vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true, nullptr);
-  vcGLState_SetBlendMode(vcGLSBM_None);
-  vcShader_Bind(nullptr);
+  for (int i = 0; i < 1; ++i)
+  {
+    if (i == 1)
+    {
+      glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+      glPolygonOffset(1.0f, -0.1f);
+      vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true, nullptr);//&stencil);
+      pTileRenderer->presentShader.everyObject.colour = udFloat4::create(1.f, 0.f, 1.f, 1.0f);//pTileRenderer->pSettings->maptiles.transparency);
+
+    }
+
+    vcTileRenderer_RecursiveRenderNodes(pTileRenderer, viewWithMapTranslation, pRootNode, nullptr, nullptr);
+  }
 
   vcGLState_SetViewportDepthRange(0.0f, 1.0f);
   vcGLState_SetDepthStencilMode(vcGLSDM_LessOrEqual, true, nullptr);
@@ -1104,7 +1103,10 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
   vcGLState_SetFaceMode(vcGLSFM_Solid, vcGLSCM_Back);
   vcShader_Bind(nullptr);
 
-#if 0
+  glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+  glPolygonOffset(1.0f, 0.0f);
+
+#if 1
   printf("touched=%d, visible=%d, rendered=%d, leaves=%d, build=%f\n", pTileRenderer->quadTree.metaData.nodeTouchedCount, pTileRenderer->quadTree.metaData.visibleNodeCount, pTileRenderer->quadTree.metaData.nodeRenderCount, pTileRenderer->quadTree.metaData.leafNodeCount, pTileRenderer->quadTree.metaData.generateTimeMs);
 #endif
 }

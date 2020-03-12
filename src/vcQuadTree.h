@@ -28,9 +28,17 @@ struct vcNodeRenderInfo
   int32_t width, height;
   void *pData;
 
+  vcTexture *pDemTexture;
+  int32_t demWidth, demHeight;
+  void *pDemData;
+
   vcTexture *pDrawTexture; // which texture to draw this node with for this frame. Note: may belong to an ancestor node.
   udFloat2 uvStart;
   udFloat2 uvEnd;
+
+  vcTexture *pDrawDemTexture;
+  udFloat2 uvDemStart;
+  udFloat2 uvDemEnd;
 };
 
 struct vcQuadTreeNode
@@ -44,7 +52,6 @@ struct vcQuadTreeNode
   uint32_t childMask; // [1, 2, 4, 8] for each corner [bottom left, bottom right, top left, top right]
   udInt2 morten;
   int neighbours;
-  int level;
 
   bool visible;
   volatile bool touched;
