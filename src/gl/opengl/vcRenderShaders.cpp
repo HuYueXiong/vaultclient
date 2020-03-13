@@ -423,6 +423,7 @@ layout (std140) uniform u_EveryObject
   vec4 u_colour;
   vec4 u_uvOffsetScale;
   vec4 u_demUVOffsetScale;
+  vec4 u_tileNormal;
 };
 
 // this could be used instead instead of writing to depth directly,
@@ -459,7 +460,8 @@ void main()
 
   vec2 demUV = u_demUVOffsetScale.xy + u_demUVOffsetScale.zw * a_uv.xy;
   float tileHeight = texture(u_dem, demUV).r * 32768.0;
-  vec4 h = u_view * vec4(0, 0, tileHeight, 1.0);
+  vec3 heightOffset = u_tileNormal.xyz * tileHeight;
+  vec4 h = u_view * vec4(heightOffset, 1.0);
   vec4 baseH = u_view * vec4(0, 0, 0, 1.0);
   vec4 diff = (h - baseH);
 

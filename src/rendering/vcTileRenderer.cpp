@@ -67,6 +67,7 @@ struct vcTileRenderer
       udFloat4 colour;
       udFloat4 uvOffsetScale;
       udFloat4 demUVOffsetScale;
+      udFloat4 tileNormal;
     } everyObject;
   } presentShader;
 };
@@ -925,6 +926,16 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
 
   udFloat2 demSize = pNode->renderInfo.uvDemEnd - pNode->renderInfo.uvDemStart;
   pTileRenderer->presentShader.everyObject.demUVOffsetScale = udFloat4::create(pNode->renderInfo.uvDemStart, demSize.x, demSize.y);
+
+  // one normal?
+  udDouble3 p0 = pNode->worldBounds[0];
+  udDouble3 p1 = pNode->worldBounds[2];
+  udDouble3 p2 = pNode->worldBounds[6];
+  udDouble3 p3 = pNode->worldBounds[8];
+  udDouble3 n0 = udCross3(udNormalize3(p0 - p2), udNormalize3(p0 - p1));
+  udDouble3 n1 = udCross3(udNormalize3(p3 - p1), udNormalize3(p3 - p2));
+  udDouble3 normal = udNormalize3(n0 + n1);
+  pTileRenderer->presentShader.everyObject.tileNormal = udFloat4::create(udFloat3::create(normal), 0.0f);
 
   vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pTexture, 0, pTileRenderer->presentShader.uniform_texture);
   vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pDemTexture, 1, pTileRenderer->presentShader.uniform_dem);
