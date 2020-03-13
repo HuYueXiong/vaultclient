@@ -125,23 +125,41 @@ void vcQuadTree_CleanupNode(vcQuadTreeNode *pNode)
 #include "udGeoZone.h"
 #include "vcGIS.h"
 
-void vcQuadTree_CalculateNodeBounds(vcQuadTree *pQuadTree, vcQuadTreeNode *pNode)
+void vcQuadTree_CalculateNodeAABB(vcQuadTreeNode *pNode)
 {
   udDouble3 boundsMin = udDouble3::create(FLT_MAX, FLT_MAX, FLT_MAX);
   udDouble3 boundsMax = udDouble3::create(-FLT_MAX, -FLT_MAX, -FLT_MAX);
+
+  // one normal?
+  udDouble3 p0 = pNode->worldBounds[0];
+  udDouble3 p1 = pNode->worldBounds[2];
+  udDouble3 p2 = pNode->worldBounds[6];
+  udDouble3 p3 = pNode->worldBounds[8];
+  udDouble3 n0 = udCross3(udNormalize3(p0 - p2), udNormalize3(p0 - p1));
+  udDouble3 n1 = udCross3(udNormalize3(p3 - p1), udNormalize3(p3 - p2));
+  pNode->worldNormal = udNormalize3(n0 + n1);
+
+  for (int edge = 0; edge < 9; ++edge)
+  {
+    boundsMin = udMin(pNode->worldBounds[edge] + pNode->worldNormal * pNode->demMinMax[0], boundsMin);
+    boundsMax = udMax(pNode->worldBounds[edge] + pNode->worldNormal * pNode->demMinMax[1], boundsMax);
+  }
+
+  pNode->tileCenter = (boundsMax + boundsMin) * 0.5;
+  pNode->tileExtents = (boundsMax - boundsMin) * 0.5;
+}
+
+void vcQuadTree_CalculateNodeBounds(vcQuadTree *pQuadTree, vcQuadTreeNode *pNode)
+{
   for (int edge = 0; edge < 9; ++edge)
   {
     udInt2 slippySampleCoord = udInt2::create((pNode->slippyPosition.x * 2) + (edge % 3),
       (pNode->slippyPosition.y * 2) + (edge / 3));
 
     vcGIS_SlippyToLocal(&pQuadTree->gisSpace, &pNode->worldBounds[edge], slippySampleCoord, pNode->slippyPosition.z + 1);
-
-    boundsMin = udMin(pNode->worldBounds[edge], boundsMin);
-    boundsMax = udMax(pNode->worldBounds[edge], boundsMax);
   }
 
-  pNode->tileCenter = (boundsMax + boundsMin) * 0.5;
-  pNode->tileExtents = (boundsMax - boundsMin) * 0.5;
+  vcQuadTree_CalculateNodeAABB(pNode);
 }
 
 void vcQuadTree_InitNode(vcQuadTree *pQuadTree, uint32_t slotIndex, const udInt3 &childSlippy)
@@ -496,6 +514,7 @@ bool vcQuadTree_ShouldFreeBlock(vcQuadTree *pQuadTree, uint32_t blockIndex)
       return false;
   }
 
+  // TODO: Remember to fix this up yo
   return true;
 
   // determine if this block is being used for rendering

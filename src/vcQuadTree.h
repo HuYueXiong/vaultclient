@@ -63,6 +63,8 @@ struct vcQuadTreeNode
                             // [0, 1, 2,
                             //  3, 4, 5,
                             //  6, 7, 8]
+  int16_t demMinMax[2];
+  udDouble3 worldNormal;
 
   vcNodeRenderInfo renderInfo;
 };
@@ -138,5 +140,7 @@ inline bool vcQuadTree_IsVisibleLeafNode(const vcQuadTree *pQuadTree, const vcQu
 
   return true;
 }
+
+void vcQuadTree_CalculateNodeAABB(vcQuadTreeNode *pNode);
 
 #endif//vcQuadTree_h__

@@ -783,8 +783,13 @@ bool vcTileRenderer_UpdateTileTexture(vcTileRenderer *pTileRenderer, vcQuadTreeN
     vcTexture_Create(&pNode->renderInfo.pTexture, pNode->renderInfo.width, pNode->renderInfo.height, pNode->renderInfo.pData, vcTextureFormat_RGBA8, vcTFM_Linear, true, vcTWM_Clamp, vcTCF_None, 16);
     udFree(pNode->renderInfo.pData);
 
+    pNode->demMinMax[0] = pNode->demMinMax[1] = 0;
+
     if (pNode->renderInfo.pDemData != nullptr)
     {
+      pNode->demMinMax[0] = 32767;
+      pNode->demMinMax[1] = -32768;
+
       int16_t *pShortPixels = udAllocType(int16_t, pNode->renderInfo.demWidth * pNode->renderInfo.demHeight, udAF_Zero);
       for (int h = 0; h < pNode->renderInfo.demHeight; ++h)
       {
@@ -795,14 +800,22 @@ bool vcTileRenderer_UpdateTileTexture(vcTileRenderer *pTileRenderer, vcQuadTreeN
           uint8_t r = (p & 0xff000000) >> 24;
           uint8_t g = (p & 0x00ff0000) >> 16;
 
-          uint16_t height = r | (g << 8);
+          int16_t height = r | (g << 8);
 
+          if (height == -32768) // TODO: or whatever the invalid sentinel value is
+            height = 0;
+
+          pNode->demMinMax[0] = udMin(pNode->demMinMax[0], height);
+          pNode->demMinMax[1] = udMax(pNode->demMinMax[1], height);
           pShortPixels[index] = height;
         }
       }
       vcTexture_Create(&pNode->renderInfo.pDemTexture, pNode->renderInfo.demWidth, pNode->renderInfo.demHeight, pShortPixels, vcTextureFormat_R16, vcTFM_Linear, false, vcTWM_Clamp);//, vcTCF_None, 16);
       udFree(pShortPixels);
       udFree(pNode->renderInfo.pDemData);
+
+      // TODO: I think this has to be done again, since bounds needs to be updated
+      vcQuadTree_CalculateNodeAABB(pNode);
     }
 
     return true;
@@ -927,15 +940,7 @@ bool vcTileRenderer_DrawNode(vcTileRenderer *pTileRenderer, vcQuadTreeNode *pNod
   udFloat2 demSize = pNode->renderInfo.uvDemEnd - pNode->renderInfo.uvDemStart;
   pTileRenderer->presentShader.everyObject.demUVOffsetScale = udFloat4::create(pNode->renderInfo.uvDemStart, demSize.x, demSize.y);
 
-  // one normal?
-  udDouble3 p0 = pNode->worldBounds[0];
-  udDouble3 p1 = pNode->worldBounds[2];
-  udDouble3 p2 = pNode->worldBounds[6];
-  udDouble3 p3 = pNode->worldBounds[8];
-  udDouble3 n0 = udCross3(udNormalize3(p0 - p2), udNormalize3(p0 - p1));
-  udDouble3 n1 = udCross3(udNormalize3(p3 - p1), udNormalize3(p3 - p2));
-  udDouble3 normal = udNormalize3(n0 + n1);
-  pTileRenderer->presentShader.everyObject.tileNormal = udFloat4::create(udFloat3::create(normal), 0.0f);
+  pTileRenderer->presentShader.everyObject.tileNormal = udFloat4::create(udFloat3::create(pNode->worldNormal), 0.0f);
 
   vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pTexture, 0, pTileRenderer->presentShader.uniform_texture);
   vcShader_BindTexture(pTileRenderer->presentShader.pProgram, pDemTexture, 1, pTileRenderer->presentShader.uniform_dem);
