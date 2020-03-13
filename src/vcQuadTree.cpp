@@ -130,15 +130,6 @@ void vcQuadTree_CalculateNodeAABB(vcQuadTreeNode *pNode)
   udDouble3 boundsMin = udDouble3::create(FLT_MAX, FLT_MAX, FLT_MAX);
   udDouble3 boundsMax = udDouble3::create(-FLT_MAX, -FLT_MAX, -FLT_MAX);
 
-  // one normal?
-  udDouble3 p0 = pNode->worldBounds[0];
-  udDouble3 p1 = pNode->worldBounds[2];
-  udDouble3 p2 = pNode->worldBounds[6];
-  udDouble3 p3 = pNode->worldBounds[8];
-  udDouble3 n0 = udCross3(udNormalize3(p0 - p2), udNormalize3(p0 - p1));
-  udDouble3 n1 = udCross3(udNormalize3(p3 - p1), udNormalize3(p3 - p2));
-  pNode->worldNormal = udNormalize3(n0 + n1);
-
   for (int edge = 0; edge < 9; ++edge)
   {
     boundsMin = udMin(pNode->worldBounds[edge] + pNode->worldNormal * pNode->demMinMax[0], boundsMin);
@@ -158,6 +149,15 @@ void vcQuadTree_CalculateNodeBounds(vcQuadTree *pQuadTree, vcQuadTreeNode *pNode
 
     vcGIS_SlippyToLocal(&pQuadTree->gisSpace, &pNode->worldBounds[edge], slippySampleCoord, pNode->slippyPosition.z + 1);
   }
+
+  // one normal?
+  udDouble3 p0 = pNode->worldBounds[0];
+  udDouble3 p1 = pNode->worldBounds[2];
+  udDouble3 p2 = pNode->worldBounds[6];
+  udDouble3 p3 = pNode->worldBounds[8];
+  udDouble3 n0 = udCross3(udNormalize3(p0 - p2), udNormalize3(p0 - p1));
+  udDouble3 n1 = udCross3(udNormalize3(p3 - p1), udNormalize3(p3 - p2));
+  pNode->worldNormal = udNormalize3(n0 + n1);
 
   vcQuadTree_CalculateNodeAABB(pNode);
 }
@@ -230,7 +230,9 @@ void vcQuadTree_RecurseGenerateTree(vcQuadTree *pQuadTree, uint32_t currentNodeI
 
     // leave this here as we could be fixing up a re-root
     pChildNode->parentIndex = currentNodeIndex;
-    pChildNode->visible = pCurrentNode->visible && vcQuadTree_IsNodeVisible(pQuadTree, pChildNode);
+    //pChildNode->visible = pCurrentNode->visible && vcQuadTree_IsNodeVisible(pQuadTree, pChildNode);
+    // PARENT MIGHT NOT HAVE DEM - SO VISIBILITY CHANGES?!
+    pChildNode->visible = vcQuadTree_IsNodeVisible(pQuadTree, pChildNode);
     pChildNode->morten.x = pCurrentNode->morten.x | (mortenIndices[childQuadrant].x << (31 - pChildNode->slippyPosition.z));
     pChildNode->morten.y = pCurrentNode->morten.y | (mortenIndices[childQuadrant].y << (31 - pChildNode->slippyPosition.z));
 

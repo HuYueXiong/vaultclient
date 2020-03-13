@@ -1043,6 +1043,15 @@ bool vcTileRenderer_RecursiveRenderNodes(vcTileRenderer *pTileRenderer, const ud
 
     pNode->renderInfo.uvDemStart = udFloat2::create(slippy0 - ancestorSlippyLocal0) / boundsRange;
     pNode->renderInfo.uvDemEnd = udFloat2::one() - (udFloat2::create(ancestorSlippyLocal1 - slippy1) / boundsRange);
+
+    // also inherit DEM data
+    // TODO: THIS MAY BE TOO LATE FOR THIS FRAME? (.visible is checked above)
+    bool recalcNodeBounds = pNode->demMinMax[0] != pBestDemAncestor->demMinMax[0] || pNode->demMinMax[1] != pBestDemAncestor->demMinMax[1];
+    pNode->demMinMax[0] = pBestDemAncestor->demMinMax[0];
+    pNode->demMinMax[1] = pBestDemAncestor->demMinMax[1];
+
+    if (recalcNodeBounds)
+      vcQuadTree_CalculateNodeAABB(pNode);
   }
 
   int meshIndex = 0;
@@ -1099,7 +1108,7 @@ void vcTileRenderer_Render(vcTileRenderer *pTileRenderer, const udDouble4x4 &vie
   pTileRenderer->presentShader.everyObject.viewMatrix = udFloat4x4::create(view);
   pTileRenderer->presentShader.everyObject.colour = udFloat4::create(1.f, 1.f, 1.f, 0.0f);//pTileRenderer->pSettings->maptiles.transparency);
 
-  for (int i = 0; i < 1; ++i)
+  for (int i = 0; i < 2; ++i)
   {
     if (i == 1)
     {
